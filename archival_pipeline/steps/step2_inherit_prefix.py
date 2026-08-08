@@ -29,14 +29,16 @@ from archival_pipeline.models import (
     PipelineContext, RenameOperation,
     StepPreview, StepResult, BackupData,
 )
+from archival_pipeline.steps.step1_processor import _ZERO_WIDTH
 
 # ── 排除模式 ─────────────────────────────────────────────────
 _RJ_PATTERN = re.compile(r"^RJ\d+", re.IGNORECASE)
 # 纯数字/短横目录（平台 ID 等，不是日期也不是上下文）
 _PURE_NUMERIC_DIR = re.compile(r"^[\d\-_]{2,8}$")
-# 平台档位标记 (fantia500)/(fanbox500)/patreon/ci-en/gumroad（A5 清理）
+# 平台档位标记 (fantia500)/(fanbox500)/(0)/(500)/patreon/ci-en/gumroad（A5 清理）
+# ⚠️ 裸数字只匹配括号内（\(\d+\)）——否则误删 RJ01606066 的作品号、scene01 的序号
 _RE_TIER_TAG = re.compile(
-    r"\(?(?:fantia|fanbox|patreon|ci[-_]?en|gumroad)\s*\d*\)?", re.IGNORECASE,
+    r"\(?(?:fantia|fanbox|patreon|ci[-_]?en|gumroad)\s*\d*\)?|\(\d+\)", re.IGNORECASE,
 )
 
 # ── 日期范围模式（两个日期，取起点） ────────────────────────
@@ -138,13 +140,16 @@ def find_parent_date_and_context(
       第二遍: 没找到具体 → 找第一个日期范围目录 → 用起点
       都没有 → 无日期
 
-    上下文 = 日期源之下（文件之上）的无日期目录名（反转成根→近顺序）。
-    全部无日期时，上下文 = 所有无日期目录（保留档案层级）。
+    上下文（A5 全链继承，用户拍板 2026-08-08）:
+      继承父目录链上**所有**目录名（target 下第一级 → 文件父目录），
+      越靠近根目录的目录被越多文件继承。
+      每个目录名: 去日期部分（日期已由 A4 提取前置，不重复）→
+      去档位标记 → 去伪扩展名 → 去符号噪音；剩余非空则进 context，根→近顺序。
+      RJ 编号/纯数字目录不再排除（RJ 是作品标识，属于档案上下文）。
 
-    例: path=2025.09.7z/Furina-芙宁娜/芙芙.mp4
-      1. 检查 Furina-芙宁娜 → 无日期，记录为上下文
-      2. 检查 2025.09.7z → 日期 2509（月精度），停止
-      返回 ('2509', 'Furina-芙宁娜')
+    例: 2022-02-15-報いを受ける春ちゃん.psd/200609haru1.psd
+      → 日期 220215（P3）+ context '報いを受ける春ちゃん'
+      → 220215_報いを受ける春ちゃん_200609haru1.psd
     """
     # 父目录链（近→远）
     chain: list[Path] = []
@@ -153,39 +158,57 @@ def find_parent_date_and_context(
         chain.append(parent)
         parent = parent.parent
 
-    def _context_below(idx: int) -> str:
-        """收集 chain[0..idx-1]（日期源之下）的无日期目录作为上下文"""
+    def _clean_context_name(name: str) -> str:
+        """A5 全链继承的目录名处理：去日期/档位/伪扩展名/符号噪音
+
+        不全角转半角（避免 ？→? 非法字符；全角字符 Windows 合法）。
+        """
+        n = name
+        # 去日期部分（从开头匹配的日期格式去掉）
+        for pat in (_RANGE_FULL, _RANGE_YYMMDD, _RANGE_MONTH,
+                    _YYMMDD_HEAD, _DATE_FULL_SEP, _DATE_YEAR_MONTH_DOT):
+            m = pat.match(n)
+            if m:
+                n = n[m.end():]
+                break
+        n = n.lstrip("-_~ ～. ")
+        # 去档位标记（含裸数字 (0)/(500)）
+        n = _RE_TIER_TAG.sub("", n)
+        # 去伪扩展名（目录名里的 .psd 等——目录不是文件，扩展名无档案语义）
+        if "." in n:
+            stem = Path(n).stem
+            n = stem if stem else n
+        # 零宽删除、连续分隔折叠、去首尾
+        n = n.translate(str.maketrans("", "", _ZERO_WIDTH))
+        n = re.sub(r"_+", "_", n).strip(" _-·")
+        # 纯数字/纯符号剩余（档位目录 0/500、2022-02-22! 的 !、期数残留）→
+        # 平台结构数字无独立档案语义，丢弃；有字母/日文才保留（RJ01606066、scene01_LOOP）
+        if not re.search(r"[A-Za-z\u4e00-\u9fffぁ-んァ-ヶ]", n):
+            return ""
+        return n
+
+    def _context_all() -> str:
+        """全链继承：所有父目录名（去日期/档位/伪扩展名后剩余）作 context，根→近"""
         parts = []
-        for p in chain[:idx]:
-            t, _ = extract_date_signal(p.name)
-            if (t == "none"
-                    and not _PURE_NUMERIC_DIR.match(p.name)
-                    and not _RJ_PATTERN.match(p.name)):
-                # A5: 清理平台档位标记 (fantia500)/(fanbox500)
-                name = _RE_TIER_TAG.sub("", p.name).strip("()[] _-")
-                if name:
-                    parts.append(name)
-        parts.reverse()
+        for p in chain:
+            c = _clean_context_name(p.name)
+            if c:
+                parts.append(c)
+        parts.reverse()  # 根→近
         return "_".join(parts)
 
     # 第一遍: 最近的具体日期
     for i, p in enumerate(chain):
         t, d = extract_date_signal(p.name)
         if t == "single":
-            return d, _context_below(i)
+            return d, _context_all()
     # 第二遍: 最近的范围（起点）
     for i, p in enumerate(chain):
         t, d = extract_date_signal(p.name)
         if t == "range":
-            return d, _context_below(i)
-    # 无日期: 全部无日期目录作上下文（清理档位标记）
-    parts = []
-    for p in reversed(chain):
-        if not _PURE_NUMERIC_DIR.match(p.name):
-            name = _RE_TIER_TAG.sub("", p.name).strip("()[] _-")
-            if name:
-                parts.append(name)
-    return None, "_".join(parts)
+            return d, _context_all()
+    # 无日期
+    return None, _context_all()
 
 
 def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False) -> str:
@@ -205,12 +228,15 @@ def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False)
     f_type, f_date = extract_date_signal(file_path.stem)
     if f_type == "single":
         # D3 修正：目录发布日优先——文件自带日期（素材日）≠ 目录日期时用目录日期作前缀
-        # （素材日期保留在原名）；已对齐目录日期 → 幂等返回空
-        parent_date, _ = find_parent_date_and_context(file_path, target_dir)
+        # （素材日期保留在原名）；context 全链继承（作品名/标题/RJ 等）
+        parent_date, parent_ctx = find_parent_date_and_context(file_path, target_dir)
         if parent_date:
             if file_path.stem.startswith(parent_date):
                 return ""
-            return parent_date + "_"
+            parts = [parent_date]
+            if parent_ctx:
+                parts.append(parent_ctx)
+            return "_".join(parts) + "_"
         return ""
     if f_type == "range":
         # 文件自带日期范围 → 起点（文件自身日期信号最强，不继承目录）
@@ -248,13 +274,13 @@ class Step2InheritPrefix(PipelineStep):
             f_type, f_date = extract_date_signal(rec.current_path.stem)
             if f_type == "single":
                 # D3 修正：目录发布日优先——文件自带日期（素材日）≠ 目录日期时
-                # 用目录日期作前缀（素材日期保留在原名，如 200609haru1 → 220215_200609haru1）
-                parent_date, _ = find_parent_date_and_context(
+                # 用目录日期作前缀（素材日期保留在原名）；context 全链继承
+                parent_date, parent_ctx = find_parent_date_and_context(
                     rec.current_path, ctx.target_dir)
                 if parent_date:
                     if rec.current_path.stem.startswith(parent_date):
                         continue  # 已对齐目录日期，幂等
-                    date, context = parent_date, ""
+                    date, context = parent_date, parent_ctx
                 else:
                     continue  # 无目录日期：文件日期即档案日期，幂等
             elif f_type == "range":

@@ -124,24 +124,25 @@ def test_date_inheritance(tmp: Path):
     assert extract_date_signal("220208haru_ki") == ("single", "220208")
 
     # ── 继承优先级集成测试 ──
-    # P3: 4级具体日期（最近）
+    # P3: 4级具体日期（最近）+ A5 全链继承（作品名进 context；期数 1 是纯数字丢弃）
     f1 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "231127_1(0)" / "2096f222_0zenra_24fps.mp4"
     f1.parent.mkdir(parents=True, exist_ok=True)
     f1.write_text("x", encoding="utf-8")
     date, ctx = find_parent_date_and_context(f1, tmp)
     assert date == "231127", f"P3 应继承 4级具体日期 231127，实际 {date}"
-    assert ctx == "", f"上下文应为空（日期目录下无目录），实际 {ctx}"
-    assert compute_prefix(f1, tmp) == "231127_"
+    assert ctx == "作品名", f"A5 全链继承应为 作品名（根→近，期数纯数字丢弃），实际 {ctx}"
+    assert compute_prefix(f1, tmp) == "231127_作品名_", \
+        f"前缀应为 231127_作品名_，实际 {compute_prefix(f1, tmp)}"
 
-    # P4+RJ: RJ 目录不提供日期，但更远的总范围提供起点；RJ 不进上下文
+    # P4+RJ: RJ 目录不提供日期，但更远的总范围提供起点；RJ 编号进上下文（A5 全链）
     f2 = tmp / "作品名" / "220215-260607" / "RJ01606066" / "xxx.mp4"
     f2.parent.mkdir(parents=True, exist_ok=True)
     f2.write_text("x", encoding="utf-8")
     date, ctx = find_parent_date_and_context(f2, tmp)
     assert date == "220215", f"P4 应继承 2级范围起点 220215，实际 {date}"
-    assert "RJ01606066" not in ctx, f"RJ 目录不应进上下文，实际 {ctx}"
-    assert compute_prefix(f2, tmp) == "220215_", \
-        f"前缀应为 220215_（RJ 不进上下文），实际 {compute_prefix(f2, tmp)}"
+    assert "RJ01606066" in ctx, f"RJ 编号应进上下文（作品标识），实际 {ctx}"
+    assert compute_prefix(f2, tmp) == "220215_作品名_RJ01606066_", \
+        f"前缀应为 220215_作品名_RJ01606066_，实际 {compute_prefix(f2, tmp)}"
 
     # P2: 文件带范围 → 起点（不继承目录）
     f3 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "231127-260607_xxx.mp4"
@@ -150,12 +151,12 @@ def test_date_inheritance(tmp: Path):
     assert compute_prefix(f3, tmp) == "231127_", \
         f"P2 文件范围应取起点 231127，实际 {compute_prefix(f3, tmp)}"
 
-    # D3 修正: 文件带日期 + 目录有日期 → 目录发布日优先（素材复用场景，素材日期保留原名）
+    # D3 修正: 文件带日期 + 目录有日期 → 目录发布日优先 + 标题目录进 context
     f4 = tmp / "作品名" / "220215-260607" / "2022-02-15-帖" / "220208haru_ki.psd"
     f4.parent.mkdir(parents=True, exist_ok=True)
     f4.write_text("x", encoding="utf-8")
-    assert compute_prefix(f4, tmp) == "220215_", \
-        "D3: 目录发布日优先——文件素材日期(220208)被目录(220215)覆盖为前缀"
+    assert compute_prefix(f4, tmp) == "220215_作品名_帖_", \
+        f"D3 目录发布日优先 + 标题继承，实际 {compute_prefix(f4, tmp)}"
 
     # P4: 无具体日期时继承最近范围起点
     f5 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "no_date.mp4"
