@@ -191,6 +191,10 @@ def main():
                             else Path(f"preview_{datetime.datetime.now():%Y%m%d_%H%M%S}.txt"))
             if not preview_path.is_absolute():
                 preview_path = target / preview_path
+                # 防污染警告：非 preview_ 前缀的相对路径文件会被下次扫描处理
+                if not preview_path.name.startswith("preview_"):
+                    print(f"⚠ 提示: '{preview_path.name}' 不以 preview_ 开头，"
+                          f"下次执行会被扫描处理；建议 --preview 默认名或绝对路径", file=sys.stderr)
             preview_path.write_text(output, encoding="utf-8")
             print(f"预览已保存: {preview_path}")
         else:
