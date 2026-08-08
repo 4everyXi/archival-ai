@@ -151,12 +151,25 @@ def main():
         if args.full:
             from archival_pipeline.models import RenameOperation as RO
             import copy
-            # Use pipeline's records (original paths) instead of re-scanning disk
+            # 用 pipeline 的 records（原始路径）重建 original→final 对照。
+            # ⚠️ 链式解析：final_operations 含中间态 op（step1: 原名→中间名, step2: 中间名→最终名），
+            #    直接 get(src) 只解析一步会显示中间结果（如 2096f222_0zenra→0zenra 而非 231127_0zenra）
+            #    必须沿 op 链走到终点（2026-08-08 真实目录分析发现的显示 bug）
             ops_by_source = {str(op.source): str(op.destination) for op in result.final_operations}
+
+            def _resolve(src: str) -> str:
+                """链式解析：原名 → 最终名（沿 op 链走到尽头，防循环）"""
+                seen = set()
+                cur = src
+                while cur in ops_by_source and cur not in seen:
+                    seen.add(cur)
+                    cur = ops_by_source[cur]
+                return cur
+
             full_ops = []
             for rec in p.context.records:
                 src = str(rec.original_path)
-                dst = ops_by_source.get(src, src)
+                dst = _resolve(src)
                 full_ops.append(RO(source=rec.original_path, destination=Path(dst)))
             full_result = copy.copy(result)
             full_result.final_operations = full_ops
