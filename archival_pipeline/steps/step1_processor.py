@@ -137,6 +137,9 @@ def three_delete(name: str) -> str:
     ext = Path(name).suffix
     # A3: NFC 归一化（macOS NFD 与 Windows NFC 字节不同→同名共存；pathvalidate normalize 思想）
     stem = unicodedata.normalize("NFC", stem)
+    # D7: 全角数字紧贴半角数字 → 插 _（`１1920` → `1_1920`，防转换后合并成歧义数字 11920）
+    stem = re.sub(r"([０-９])(?=[0-9])", r"\1_", stem)
+    stem = re.sub(r"([0-9])(?=[０-９])", r"\1_", stem)
     # A3: 全角→半角
     stem = stem.translate(_FULLWIDTH_TO_HALFWIDTH)
     # A3: 零宽字符
@@ -166,6 +169,9 @@ def three_delete(name: str) -> str:
         stem = stem[: -len(ext)]
     # A3: 统一分隔符（半角连字符、日文名字中点 → _）
     stem = stem.replace("-", "_").replace("・", "_")
+    # D8: 非扩展名点号统一为 _（juri_kijoui.48fps → juri_kijoui_48fps；
+    #     真扩展名已被 Path.suffix 分离，stem 内点号均为标记/中间扩展名）
+    stem = stem.replace(".", "_")
     return stem + ext
 
 

@@ -206,6 +206,11 @@ def test_structure_upgrades(tmp: Path):
     nfd_name = "cafe\u0301"  # é 分解形式（macOS NFD）
     nfc_name = "café"        # é 合成形式（Windows NFC）
     assert t(nfd_name + ".mp4") == nfc_name + ".mp4", "NFD 应归一化为 NFC"
+    # ── D7: 全角数字贴半角 → 加分隔符（防合并歧义）──
+    assert t("jururiTZS1_１1920_1080.mov") == "jururiTZS1_1_1920_1080.mov", \
+        "全角数字贴半角应加 _ 分隔（１1920 → 1_1920）"
+    # ── D8: 非扩展名点号统一为 _ ──
+    assert t("juri_kijoui.48fps.mp4") == "juri_kijoui_48fps.mp4", "非扩展名点号应转 _"
     # ── A5: 档位标记 ──
     assert t("xxx(fantia500).mp4") == "xxx.mp4"
     assert t("xxx(fanbox500).mp4") == "xxx.mp4"
