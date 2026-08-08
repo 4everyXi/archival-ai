@@ -29,7 +29,7 @@
 | 候选 | 能力 | 决策 | 依据 |
 |------|------|------|------|
 | **pathvalidate**（3.3.1 活跃） | 文件名净化（非法字符/保留名/255截断/NFD） | **EXTRACT 已完成** | NFC 归一化补入 step1（真实缺口）；保留名/255 截断确认已覆盖（v3 集成）。不引依赖（纯 stdlib 是特性） |
-| **f2**（2.4k★ MIT Go） | 批量重命名：dry-run 默认/冲突检测/undo/自动修复 | **IGNORE（印证）** | 核心理念 archival-ai 全有；冲突 6 类（非法字符/撞名/超长/尾随点/空名/同目标）**我们 8 类全覆盖**；`--fix-conflicts` 自动解决冲突与我们"脚本不越权决策"哲学冲突（冲突交 AI/用户） |
+| **f2**（2.4k★ MIT Go） | 批量重命名：dry-run 默认/冲突检测/undo/自动修复 | **IGNORE + EXTRACT（codegate 审核通过）** | 核心理念 archival-ai 全有；冲突 6 类我们 8 类全覆盖；`--fix-conflicts` 自动解决冲突是哲学冲突不采用；**EXTRACT undo 思路：自动 JSON 备份到平台临时目录（此前默认执行不落盘=安全缺口，已补）**。质量审核（codegate）：70 文件/13k 行/24 测试，无过度抽象（2 接口均多实现），backup.go 76 行单职责+依赖注入，✅ 质量合格 |
 | **rnr**（592★ Rust） | 批量重命名 + 冲突检测 | **已集成** | conflict_detector 的 RenameSolver 移植自 rnr solver.rs（v3 Source Lock） |
 | **brename**（正则批量重命名） | 正则替换 | IGNORE | 正则场景不匹配（我们 AI 语义优先） |
 | **tidy-app / file_organizer** | 下载文件夹按类型整理 | IGNORE | 按文件类型 vs 我们按日期/语义，边界不匹配 |

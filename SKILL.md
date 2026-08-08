@@ -169,6 +169,7 @@ P5  全部无日期              → 不加前缀
 | 统一回滚 | `python -m archival_pipeline.cli --rollback <备份1> <备份2>` |
 | 快速模式翻译预览（B5 缓存） | `python -m archival_pipeline.cli <目录> --translate table --preview pv.json --format txt --full` |
 | 平铺（可选，需显式） | `python -m archival_pipeline.cli <目录> --flatten` |
+| 回滚（自动找最近备份） | `python -m archival_pipeline.cli <目录> --rollback` |
 | 残留检测 | `python scripts/check_translation.py <目录>` |
 | 自检（验证安全网） | `python scripts/selftest.py` |
 

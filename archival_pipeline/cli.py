@@ -6,12 +6,36 @@
 - 为什么这样好: 默认路径不含翻译脚本=智能体优先在代码层落地；翻译由 AI 完成，脚本不越权
 """
 import argparse
+import datetime
+import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 from archival_pipeline.pipeline import Pipeline
 from archival_pipeline.preview import render
 from archival_pipeline.backup import save_backup, rollback_all
+
+
+def _auto_backup_dir() -> Path:
+    """自动备份目录（f2 思路：平台临时目录，防污染 target 目录）"""
+    d = Path(tempfile.gettempdir()) / "archival-ai-backups"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _target_hash(target: Path) -> str:
+    """target 路径 hash（备份文件命名，f2 用 cwd 路径 MD5 思路）"""
+    return hashlib.md5(str(target.resolve()).encode("utf-8")).hexdigest()[:10]
+
+
+def _find_auto_backups(target: Path) -> list[Path]:
+    """找 target 对应的自动备份（按时间排序，最新优先）"""
+    h = _target_hash(target)
+    d = _auto_backup_dir()
+    if not d.exists():
+        return []
+    return sorted(d.glob(f"{h}-*.json"))
 
 
 def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
@@ -53,7 +77,7 @@ def main():
     parser.add_argument("--full", action="store_true", help="完整列表模式：显示全部文件原名+译名")
     parser.add_argument("--execute", action="store_true", help="执行重命名")
     parser.add_argument("--backup", metavar="PREFIX", help="备份文件前缀")
-    parser.add_argument("--rollback", metavar="FILE", nargs="+", help="从备份回滚")
+    parser.add_argument("--rollback", metavar="FILE", nargs="*", help="从备份回滚（无参数时自动找最近自动备份）")
     parser.add_argument("--config", help="配置文件")
     parser.add_argument("--translate", choices=["table"], nargs="?",
                         const="table", help="快速模式：常用词缓存翻译（AI 翻译不走此选项）")
@@ -62,8 +86,17 @@ def main():
     parser.add_argument("--flatten", choices=["all", "archived"], nargs="?", const="all", help="平铺")
     args = parser.parse_args()
 
-    if args.rollback:
-        success = rollback_all(args.rollback)
+    if args.rollback is not None:
+        if args.rollback:
+            success = rollback_all(args.rollback)
+        else:
+            # 自动回滚：找 temp 自动备份目录中匹配 target 的备份（f2 undo 思路）
+            backups = _find_auto_backups(Path(args.target).resolve() if args.target else Path.cwd())
+            if not backups:
+                print("未找到自动备份（需先 --execute 或显式 --backup）", file=sys.stderr)
+                sys.exit(1)
+            print(f"回滚 {len(backups)} 个自动备份: {[b.name for b in backups]}")
+            success = rollback_all(backups)
         sys.exit(0 if success else 1)
 
     if not args.target:
@@ -149,14 +182,26 @@ def main():
         return
 
     result = p.run()
-    if args.backup:
-        for sr in result.steps:
-            if sr.backup_data:
-                backup_file = Path(f"{args.backup}_{sr.step_name}.json")
-                if not backup_file.is_absolute():
-                    backup_file = target / backup_file
-                save_backup(sr.backup_data, backup_file, sr.step_name)
-                print(f"备份已保存: {backup_file}")
+    # 自动落盘备份（f2 思路：每次操作自动 JSON 备份到平台临时目录，可随时 undo）
+    saved = []
+    for sr in result.steps:
+        if not sr.backup_data:
+            continue
+        if args.backup:
+            backup_file = Path(f"{args.backup}_{sr.step_name}.json")
+            if not backup_file.is_absolute():
+                backup_file = target / backup_file
+        else:
+            backup_file = _auto_backup_dir() / (
+                f"{_target_hash(target)}-{sr.step_name}-"
+                f"{datetime.datetime.now():%Y%m%d%H%M%S}.json"
+            )
+        save_backup(sr.backup_data, backup_file, sr.step_name)
+        saved.append(str(backup_file))
+    if saved:
+        print(f"备份已保存: {', '.join(saved)}")
+    if result.statistics.get("errors", 0) > 0:
+        print(f"执行含错误: {result.statistics}", file=sys.stderr)
 
     if args.flatten:
         flatten(target, args.flatten)
