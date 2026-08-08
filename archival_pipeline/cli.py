@@ -75,6 +75,8 @@ def main():
     parser.add_argument("--preview", metavar="FILE", nargs="?", const="",
                         help="生成预览文件到目标目录（默认 preview_<时间戳>.txt；可指定相对/绝对路径）")
     parser.add_argument("--format", choices=["json", "txt"], default="txt", help="预览输出格式")
+    parser.add_argument("--dual", action="store_true",
+                        help="txt 预览双版本：对照版 + 纯净版（仅修改后文件名，preview_<时间戳>_clean.txt）")
     parser.add_argument("--full", action="store_true", help="完整列表模式：显示全部文件原名+译名")
     parser.add_argument("--execute", action="store_true", help="执行重命名")
     parser.add_argument("--backup", metavar="PREFIX", help="备份文件前缀")
@@ -196,6 +198,13 @@ def main():
                     print(f"⚠ 提示: '{preview_path.name}' 不以 preview_ 开头，"
                           f"下次执行会被扫描处理；建议 --preview 默认名或绝对路径", file=sys.stderr)
             preview_path.write_text(output, encoding="utf-8")
+            # 双版本：对照版 + 纯净版（仅修改后文件名，含相对路径）
+            if args.dual and args.format == "txt":
+                clean_output = render("txt-clean", result)
+                clean_path = preview_path.with_name(
+                    preview_path.stem + "_clean" + preview_path.suffix)
+                clean_path.write_text(clean_output, encoding="utf-8")
+                print(f"纯净版已保存: {clean_path}")
             print(f"预览已保存: {preview_path}")
         else:
             print(output)

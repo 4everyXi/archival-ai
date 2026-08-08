@@ -93,5 +93,42 @@ class TextFormatter:
         return "".join(lines)
 
 
+class CleanTextFormatter:
+    """纯净版 TXT 预览——只显示修改后的文件名（含相对路径），无源→目标对照
+
+    用途: 用户直接看"最终会变成什么样"——不带对照噪音，方便扫读/复制最终名。
+    """
+
+    format_name = "txt-clean"
+
+    def render(self, result: PipelineResult) -> str:
+        """渲染为 TXT 纯净版：仅修改后文件名清单 + 统计"""
+        lines = []
+        stats = result.statistics
+        total = stats.get("total", 0)
+        changed = stats.get("changed", 0)
+        skipped = stats.get("skipped", 0)
+
+        lines.append(f"共 {total} 个文件，{changed} 个变更，{skipped} 个无变化\n")
+        lines.append(f"\n[{changed} 个变更后文件名]（纯净版：仅修改后文件，含相对路径）\n")
+
+        if not result.final_operations:
+            lines.append("（无文件）\n")
+            return "".join(lines)
+
+        def _rel(p: Path) -> str:
+            try:
+                return str(p.relative_to(result.target_dir))
+            except ValueError:
+                return str(p)  # 目标目录外（防御）
+
+        for op in result.final_operations:
+            if op.source != op.destination:
+                lines.append(f"  {_rel(op.destination)}\n")
+
+        return "".join(lines)
+
+
 register_format("json", JsonFormatter)
 register_format("txt", TextFormatter)
+register_format("txt-clean", CleanTextFormatter)
