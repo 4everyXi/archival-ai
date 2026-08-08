@@ -33,6 +33,10 @@ from archival_pipeline.models import (
 _RJ_PATTERN = re.compile(r"^RJ\d+", re.IGNORECASE)
 # 纯数字/短横目录（平台 ID 等，不是日期也不是上下文）
 _PURE_NUMERIC_DIR = re.compile(r"^[\d\-_]{2,8}$")
+# 平台档位标记 (fantia500)/(fanbox500)/patreon/ci-en/gumroad（A5 清理）
+_RE_TIER_TAG = re.compile(
+    r"\(?(?:fantia|fanbox|patreon|ci[-_]?en|gumroad)\s*\d*\)?", re.IGNORECASE,
+)
 
 # ── 日期范围模式（两个日期，取起点） ────────────────────────
 _RANGE_FULL = re.compile(
@@ -155,7 +159,10 @@ def find_parent_date_and_context(
             if (t == "none"
                     and not _PURE_NUMERIC_DIR.match(p.name)
                     and not _RJ_PATTERN.match(p.name)):
-                parts.append(p.name)
+                # A5: 清理平台档位标记 (fantia500)/(fanbox500)
+                name = _RE_TIER_TAG.sub("", p.name).strip("()[] _-")
+                if name:
+                    parts.append(name)
         parts.reverse()
         return "_".join(parts)
 
@@ -169,9 +176,13 @@ def find_parent_date_and_context(
         t, d = extract_date_signal(p.name)
         if t == "range":
             return d, _context_below(i)
-    # 无日期: 全部无日期目录作上下文
-    parts = [p.name for p in reversed(chain)
-             if not _PURE_NUMERIC_DIR.match(p.name)]
+    # 无日期: 全部无日期目录作上下文（清理档位标记）
+    parts = []
+    for p in reversed(chain):
+        if not _PURE_NUMERIC_DIR.match(p.name):
+            name = _RE_TIER_TAG.sub("", p.name).strip("()[] _-")
+            if name:
+                parts.append(name)
     return None, "_".join(parts)
 
 
