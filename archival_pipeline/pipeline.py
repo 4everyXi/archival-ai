@@ -12,6 +12,7 @@
 from pathlib import Path
 from archival_pipeline.models import (
     PipelineContext, FileRecord, PipelineResult, StepResult, BackupData,
+    RenameOperation,
 )
 from archival_pipeline.steps import discover_steps
 from archival_pipeline.steps.base import PipelineStep
@@ -52,25 +53,33 @@ class Pipeline:
 
         每步预览时对 records 做临时修改（深拷贝），
         确保下一步看到的是上一步处理后的文件名。
+
+        报告形态：final_operations = original → final（最终态对照）——
+        与 run() 一致。链式中间态只用于内部传递，不对外报告，
+        保证人类看"源文件名 vs 最终新文件名"即可判断，AI 拿 json 直接消费。
         """
         import copy
         sim_records = copy.deepcopy(self.context.records)
         sim_ctx = copy.copy(self.context)
         sim_ctx.records = sim_records
 
-        final_ops = []
         for step in self.steps:
             sp = step.preview(sim_ctx)
             self.context.step_results[step.name] = StepResult(step_name=step.name)
-            final_ops.extend(sp.operations)
-            # 将 preview 结果应用到 sim_records，让下一步看到链式结果
+            # 应用 sim（链式中间态只在内部传递）
             for op in sp.operations:
                 for rec in sim_records:
                     if rec.current_path == op.source:
                         rec.current_path = op.destination
                         break
+        # 报告 original → final（最终态，人类对照/AI 判断直接可读）
+        final_ops = [
+            RenameOperation(rec.original_path, rec.current_path)
+            for rec in sim_records
+            if rec.original_path != rec.current_path
+        ]
         # 统计基于最终状态：total=文件数，changed=原路径≠最终路径的文件数
-        changed = sum(1 for rec in sim_records if rec.original_path != rec.current_path)
+        changed = len(final_ops)
         total_stats = {
             "total": len(sim_records),
             "changed": changed,

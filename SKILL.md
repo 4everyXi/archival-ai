@@ -160,18 +160,28 @@ P5  全部无日期              → 不加前缀
 
 ## 脚本安全网（命令）
 
-技能根目录 = `C:\Users\Administrator\AppData\Local\hermes\skills\Xi\archival-ai\`，命令需在此目录下运行：
+技能根目录 = `C:\\Users\\Administrator\\AppData\\Local\\hermes\\skills\\Xi\\archival-ai\\`，命令需在此目录下运行：
 
 | 任务 | 命令 |
 |------|------|
-| 结构预览（A 模块，JSON） | `python -m archival_pipeline.cli <目录> --preview pv.json --format json` |
-| 结构执行+备份（A 模块） | `python -m archival_pipeline.cli <目录> --execute --backup <前缀>` |
+| 结构预览——人类对照（txt，源名→最终新名） | `python -m archival_pipeline.cli <目录> --preview pv.txt` |
+| 结构预览——AI 机器可读（json） | `python -m archival_pipeline.cli <目录> --preview pv.json --format json` |
+| 结构执行+自动备份 | `python -m archival_pipeline.cli <目录> --execute`（备份自动存平台临时目录） |
 | 统一回滚 | `python -m archival_pipeline.cli --rollback <备份1> <备份2>` |
-| 快速模式翻译预览（B5 缓存） | `python -m archival_pipeline.cli <目录> --translate table --preview pv.json --format txt --full` |
+| 快速模式翻译预览（B5 缓存） | `python -m archival_pipeline.cli <目录> --translate table --preview pv.json --format txt` |
 | 平铺（可选，需显式） | `python -m archival_pipeline.cli <目录> --flatten` |
 | 回滚（自动找最近备份） | `python -m archival_pipeline.cli <目录> --rollback` |
 | 残留检测 | `python scripts/check_translation.py <目录>` |
 | 自检（验证安全网） | `python scripts/selftest.py` |
+
+### 双形态预览（执行前必须生成，给用户判断）
+
+| 形态 | 格式 | 给谁 | 内容 |
+|------|------|------|------|
+| **人类对照** | txt（默认） | 用户 | `源文件名 → 最终新文件名` 逐条对照 + 统计——用户看这个判断是否符合需求（变更清单=用户最终裁判权落点） |
+| **AI 机器可读** | json | agent 后续处理 | 完整结构数据（original_paths/new_paths/statistics/steps） |
+
+> 两条预览的 new_paths 都是**最终名**（original → final 最终态对照，非中间态）——链式中间态只存在于执行内部，不对外报告。
 
 > 精品模式（默认）不需要任何翻译命令——模块 B 由 AI 逐条理解完成，脚本只负责 A 模块 + 安全网。
 
