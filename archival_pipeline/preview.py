@@ -63,8 +63,10 @@ class TextFormatter:
             return "".join(lines)
 
         for op in result.final_operations:
-            src = op.source.name
-            dst = op.destination.name
+            # 完整路径对照（非仅文件名）——模块 A 的操作基于路径（目录继承来源/层级上下文），
+            # 人类只有看到重命名前后完整路径才能判断操作是否正确、是否符合需求
+            src = str(op.source)
+            dst = str(op.destination)
             if src == dst:
                 lines.append(f"  {src}  ->  {dst}\n")
             else:
