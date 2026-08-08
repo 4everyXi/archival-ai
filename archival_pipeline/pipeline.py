@@ -84,6 +84,10 @@ class Pipeline:
         )
 
     def run(self) -> PipelineResult:
+        """执行管线：每步执行前冲突检测（error 阻断，TARGET_EXISTS 豁免），失败自动回滚
+
+        安全放执行层——AI 决策不受限，危险操作在此拦截。
+        """
         from archival_pipeline.steps.conflict_detector import (
             check_conflicts, ConflictType,
         )

@@ -13,7 +13,7 @@ and their variants with slicing (e.g., {name1-3}, {ext1-2}).
 
 import re
 from pathlib import Path
-from typing import Tuple, Dict, List, Optional
+from typing import Tuple, Dict, Optional
 from datetime import datetime
 
 
@@ -73,6 +73,7 @@ class TokenProcessor:
         esc_mask, litmap = TokenProcessor._escape_literal_braces(mask)
 
         def _repl(m: re.Match) -> str:
+            """token 替换回调：按掩码逐 token 处理"""
             tok = m.group(1)
 
             # Handle {name} and {nameX-Y} tokens
@@ -168,6 +169,7 @@ class TokenProcessor:
         litmap = {}
 
         def _repl(m: re.Match) -> str:
+            """token 替换回调：按掩码逐 token 处理"""
             key = f"__LITERAL_{len(litmap)}__"
             litmap[key] = m.group(0)
             return key

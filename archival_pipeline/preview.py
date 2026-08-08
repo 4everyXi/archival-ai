@@ -20,6 +20,7 @@ def register_format(name: str, formatter_cls: type):
 
 
 def render(name: str, result: PipelineResult) -> str:
+    """按格式名（json/txt）渲染预览结果——格式注册表分发"""
     cls = _formatters.get(name)
     if not cls:
         raise ValueError(f"Unknown format: {name}")
@@ -43,9 +44,12 @@ def manage_preview_files(target_dir: Path):
 
 
 class JsonFormatter:
+    """JSON 格式预览——机器可读（AI 后续处理用）"""
+
     format_name = "json"
 
     def render(self, result: PipelineResult) -> str:
+        """渲染为 JSON：原始路径/新路径对照 + 统计 + 步骤清单"""
         data = {
             "file_renames": {
                 "original_paths": [str(op.source) for op in result.final_operations],
@@ -59,11 +63,12 @@ class JsonFormatter:
 
 
 class TextFormatter:
-    """人类可读预览——只显示文件名对照，不显示路径"""
+    """TXT 格式预览——人类可读，只显示文件名对照，不显示完整路径"""
 
     format_name = "txt"
 
     def render(self, result: PipelineResult) -> str:
+        """渲染为 TXT：文件对照清单（只显示文件名）+ 统计"""
         lines = []
         stats = result.statistics
         total = stats.get("total", 0)

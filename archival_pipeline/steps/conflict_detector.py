@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 
 import enum
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +36,7 @@ logger = logging.getLogger("ConflictDetector")
 
 
 class ConflictType(enum.Enum):
+    """冲突类型：error 阻断执行；warning 仅记录"""
     TARGET_EXISTS = '目标文件已存在'
     CHAIN_COLLISION = '链式覆盖'
     CASE_COLLISION = '大小写碰撞'

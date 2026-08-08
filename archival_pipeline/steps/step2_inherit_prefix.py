@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from archival_pipeline.steps.base import PipelineStep
 from archival_pipeline.models import (
-    PipelineContext, FileRecord, RenameOperation,
-    StepPreview, StepResult, BackupData, FileMetadata,
+    PipelineContext, RenameOperation,
+    StepPreview, StepResult, BackupData,
 )
 
 # ── 排除模式 ─────────────────────────────────────────────────
@@ -56,10 +56,13 @@ _DATE_FULL_SEP = re.compile(
 _DATE_YEAR_MONTH_DOT = re.compile(
     r"(?:19|20)\d{2}[._](?:0[1-9]|1[012])(?:[._](?:0[1-9]|[12]\d|3[01]))?"
 )
+# 6位数字开头 + 后面不是数字：`250714_`、`220208haru_ki`（数字后跟字母=作者命名，仍算日期）。
+# 放宽自 `(?:_|$)`（数字后只能是下划线/结尾）——真实文件常见 6位日期+字母组合
 _YYMMDD_HEAD = re.compile(r"^(\d{6})(?![0-9])")
 
 
 def _validate_date(s: str) -> bool:
+    """YYMMDD 合法性校验（月 1-12、日 1-31）——防误判纯数字 ID 为日期"""
     if len(s) != 6 or not s.isdigit():
         return False
     m, d = int(s[2:4]), int(s[4:6])
@@ -226,6 +229,7 @@ class Step2InheritPrefix(PipelineStep):
     allow_mtime: bool = False
 
     def preview(self, ctx: PipelineContext) -> StepPreview:
+        """预览：P1-P5 日期继承（文件日期>目录具体>范围起点）+ context 前缀"""
         step_cfg = ctx.step_configs.get(self.name, {})
         allow_mtime = step_cfg.get("allow_mtime", self.allow_mtime)
         template = step_cfg.get("template", None)
@@ -259,6 +263,7 @@ class Step2InheritPrefix(PipelineStep):
                         time_str="",
                     )
                 except ImportError:
+                    # 模板引擎不可用（依赖缺失）→ 该文件不处理，静默跳过（安全：宁可不改不错改）
                     new_name = None
             else:
                 parts = [p for p in [date, context] if p]

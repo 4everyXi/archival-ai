@@ -7,7 +7,7 @@
 """
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict, NotRequired
+from typing import TypedDict
 
 
 class FileMetadata(TypedDict, total=False):

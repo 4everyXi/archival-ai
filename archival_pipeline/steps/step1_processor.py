@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from archival_pipeline.steps.base import PipelineStep
 from archival_pipeline.models import (
-    PipelineContext, FileRecord, RenameOperation,
+    PipelineContext, RenameOperation,
     StepPreview, StepResult, BackupData,
 )
 
@@ -61,6 +61,7 @@ _FULLWIDTH_TO_HALFWIDTH = str.maketrans(
     "abcdefghijklmnopqrstuvwxyz"
     "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ",
 )
+# 零宽/不可见字符（复制粘贴残留，确定噪音）：零宽空格/连接符/软连字符/BOM
 _ZERO_WIDTH = "\u200b\u200c\u200d\u00ad\ufeff"
 
 # Safe table: 确定噪音字符（移植自 detox safe.tbl）

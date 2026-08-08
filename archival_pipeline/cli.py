@@ -42,6 +42,10 @@ def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
 
 
 def main():
+    """CLI 入口：预览/执行/回滚/残留检测
+
+    默认路径 = 结构处理（step1+step2）；--translate 才启用快速模式缓存翻译。
+    """
     parser = argparse.ArgumentParser(description="archival_Super — 档案化管线统一入口")
     parser.add_argument("target", nargs="?", help="目标目录")
     parser.add_argument("--preview", metavar="FILE", help="生成预览文件")
