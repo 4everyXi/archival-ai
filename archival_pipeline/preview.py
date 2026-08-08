@@ -63,10 +63,15 @@ class TextFormatter:
             return "".join(lines)
 
         for op in result.final_operations:
-            # 完整路径对照（非仅文件名）——模块 A 的操作基于路径（目录继承来源/层级上下文），
-            # 人类只有看到重命名前后完整路径才能判断操作是否正确、是否符合需求
-            src = str(op.source)
-            dst = str(op.destination)
+            # 相对被执行目录的完整路径（保留全部层级：日期继承来源/档位/目录结构），
+            # 去掉重复的盘符+根前缀——人类判断需求只需看 target 内部的相对结构
+            try:
+                src = str(op.source.relative_to(result.target_dir))
+                dst = str(op.destination.relative_to(result.target_dir))
+            except ValueError:
+                # 目标目录外（防御，正常不会发生）
+                src = str(op.source)
+                dst = str(op.destination)
             if src == dst:
                 lines.append(f"  {src}  ->  {dst}\n")
             else:
