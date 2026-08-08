@@ -172,6 +172,17 @@ def test_date_inheritance(tmp: Path):
     date, _ = find_parent_date_and_context(f6, tmp)
     assert date == "250714", f"具体优先于范围：应取 2级具体 250714，实际 {date}"
 
+    # 平台 ID 目录（fantia 作品号 + 日期 + 标题）: 日期识别 + ID 删除 + 标题继承
+    f7 = tmp / "260702-260807" / "0" / "12184175-2026-07-02-カチーナ" / "001.png"
+    f7.parent.mkdir(parents=True, exist_ok=True)
+    f7.write_text("x", encoding="utf-8")
+    assert extract_date_signal("12184175-2026-07-02-カチーナ") == ("single", "260702"), \
+        f"平台 ID 后 FULL 日期应识别，实际 {extract_date_signal('12184175-2026-07-02-カチーナ')}"
+    date, ctx = find_parent_date_and_context(f7, tmp)
+    assert date == "260702", f"P3 应取目录内具体日期 260702，实际 {date}"
+    assert "12184175" not in ctx and "75-" not in ctx, f"平台 ID 应删除且不截断，实际 {ctx}"
+    assert "カチーナ" in ctx, f"标题应继承，实际 {ctx}"
+
 
 def test_structure_upgrades(tmp: Path):
     """A1/A2/A3/A5 通用化升级验证（three_delete 主链）"""

@@ -111,7 +111,8 @@ def extract_date_signal(name: str) -> tuple[str, str | None]:
     m = _YYMMDD_HEAD.match(name)
     if m and _validate_date(m.group(1)):
         return ("single", m.group(1))
-    m = _DATE_FULL_SEP.match(name)
+    # FULL 日期（YYYY-MM-DD）search：可在平台 ID 后（12184175-2026-07-02-カチーナ → 2026-07-02）
+    m = _DATE_FULL_SEP.search(name)
     if m:
         return ("single", _full_to_yymmdd(m.group(0)))
     m = _DATE_YEAR_MONTH_DOT.match(name)
@@ -159,18 +160,29 @@ def find_parent_date_and_context(
         parent = parent.parent
 
     def _clean_context_name(name: str) -> str:
-        """A5 全链继承的目录名处理：去日期/档位/伪扩展名/符号噪音
+        """A5 全链继承的目录名处理：去平台 ID/日期/档位/伪扩展名/符号噪音
 
         不全角转半角（避免 ？→? 非法字符；全角字符 Windows 合法）。
         """
         n = name
-        # 去日期部分（从开头匹配的日期格式去掉）
+        # 去开头平台 ID（8 位数字，fantia/fanbox 作品号——A1 平台 ID 规则：
+        # 8 位非日期数字是平台 ID；8 位合法日期（YYYYMMDD）豁免）
+        if not re.fullmatch(r"\d{8}", n[:8]) or _validate_date(n[:8]):
+            pass
+        else:
+            n = re.sub(r"^\d{8}(?:[-_ ]|$)", "", n)
+        # 去日期部分（从开头匹配的日期格式去掉；YYMMDD 需 _validate_date 校验，
+        # 防止 12184175 的 121841（非法日期）被当日期截断）
         for pat in (_RANGE_FULL, _RANGE_YYMMDD, _RANGE_MONTH,
                     _YYMMDD_HEAD, _DATE_FULL_SEP, _DATE_YEAR_MONTH_DOT):
             m = pat.match(n)
-            if m:
-                n = n[m.end():]
-                break
+            if not m:
+                continue
+            # 仅 YYMMDD 需要合法性校验（其余正则已限定合法范围）
+            if pat is _YYMMDD_HEAD and not _validate_date(m.group(1)):
+                continue
+            n = n[m.end():]
+            break
         n = n.lstrip("-_~ ～. ")
         # 去档位标记（含裸数字 (0)/(500)）
         n = _RE_TIER_TAG.sub("", n)
