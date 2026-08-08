@@ -2,7 +2,7 @@
 name: archival-ai
 description: "[Process] 档案化：AI 语义翻译+脚本结构处理+安全网。触发：档案化/批量重命名/翻译文件名/去平台ID。"
 license: Apache-2.0
-version: 1.0.0
+version: 1.1.0
 author: Xi
 platforms: [windows, linux, macos]
 metadata:
@@ -20,6 +20,33 @@ metadata:
 > **范式声明：AI 决定，用户确认，脚本执行，备份兜底。**
 > 翻译是语义行为——理解文化、语境、中日英韩差异，这是 AI 的能力，不是映射表能替代的。
 > 脚本的价值在执行与安全，不在决策。
+
+## 这是什么 / 何时使用
+
+**档案化** = 把从创作平台（fantia / fanbox / DLsite 等）下载的杂乱文件，整理成**规范、可检索、自包含**的命名：
+
+```
+原始（平台下载）:  2096f222_0zenra_24fps.mp4          ← hex hash + 罗马音 + 技术规格
+清洗后（模块 A）:  231127_0zenra_24fps.mp4            ← 日期前缀 + 内容名 + 帧率
+翻译后（模块 B）:  231127_全裸_24fps.mp4              ← AI 语义翻译（日→中）
+```
+
+**典型场景**：用户在 `C:\BaiduNetdiskDownload\...` 等下载目录积累了大量文件——文件名是平台生成的噪音（hash/ID/平台标记），无法检索、无法判断内容、重复文件难以发现。
+
+**何时触发**（出现任一即使用本技能）：
+- 用户说「档案化 / 整理这个目录 / 批量重命名」
+- 文件名含平台噪音（hex hash、`(fantia500)`、`twitter_video_` 等）需要清理
+- 文件名需要翻译（日/韩/英 → 中文）
+- 需要给文件加日期前缀（按目录日期继承）或去重
+
+**领域背景（术语一次定义）**：
+| 术语 | 含义 | 例子 |
+|------|------|------|
+| **平台噪音** | 下载来源平台生成的标识，无档案价值 | `2096f222_`（hex hash）、`twitter_video_`（平台前缀）、`(fantia500)`（档位） |
+| **hex hash** | 8-32 位十六进制串（含 a-f），平台给文件的唯一 ID | `2096f222_0zenra` 中的 `2096f222_` |
+| **档位标记** | 平台订阅档位（fantia 按 0/500/1000 日元分档） | 目录 `231127_1(0)`、`240116(500)` 的 `(0)`/`(500)` |
+| **内容标记** | 档案核心信息，**必须保留**（不是噪音） | `[2D动画][有修正][无码][中字]` |
+| **日期继承** | 文件无日期时，从目录层级继承日期作前缀 | 文件在 `2022-02-15-作品名` 目录 → 得 `220215_` 前缀 |
 
 ## 技能结构：两大模块
 
@@ -45,12 +72,12 @@ metadata:
 |--------|------|--------|------|
 | A1 平台噪音删除 | 删平台ID（8位非日期数字）、hex hash、域名标签、平台名前缀、URL编码；**内容标记 `[2D动画][有修正]` 保留** | 脚本 | `2096f222_0zenra` → `0zenra` |
 | A2 冗余删除 | 重复扩展名、下载副本后缀 `(1)`/`- Copy`/`副本` | 脚本 | `xxx(1).mp4` → `xxx.mp4` |
-| A3 分隔符规范化 | 全角→半角、零宽删除、`・`→`_`、safe table、连续分隔符合并、首尾清理 | 脚本 | `２４fps` → `24fps` |
+| A3 分隔符规范化 | 全角→半角、零宽删除、`・`→`_`、safe table、连续分隔符合并、首尾清理、分辨率标准化（`1280_720`→`720p`） | 脚本 | `２４fps` → `24fps` |
 | A4 日期提取与统一 | 具体日期/日期范围统一识别（P1-P5 继承，见下方规则）；范围取起点 | 脚本 | `231127-260607` → `231127` |
 | A5 目录上下文继承 | 父目录名（去平台噪音/档位标记 `(fantia500)` 后）作前缀，保留档案上下文 | 脚本 | 目录 `キャラ名` → 前缀 |
 | A6 重名冲突处理 | 重名自动 `_2` 后缀 | 脚本 | 同名 → `_2` |
 
-- A 模块全部纯机械、确定性、幂等。
+- A 模块全部纯机械、确定性、幂等（重复运行结果不变）。
 - 边界情况（不确定删不删）→ 标记留给 AI 判断，脚本不猜。
 
 ### 日期继承规则（A4，P1-P5 完备覆盖所有组合）
@@ -66,7 +93,11 @@ P5  全部无日期              → 不加前缀
          ② 具体日期 > 日期范围（"范围里包含的具体日期来继承"）
 排除: RJ 编号 / 平台标记(价格) / 歧义格式(MM-DD) 不识别为日期
 幂等: 已带 YYMMDD 前缀的文件跳过，重复运行不变
+D3 修正: 文件自带日期（素材日）≠ 目录日期（发布日）时 → 目录发布日优先作前缀，
+         素材日期保留在原名（200609haru1 在 220215 目录 → 220215_200609haru1）
 ```
+
+**日期格式**：YYMMDD（`231127`）/ YYYY-MM-DD（`2022-02-15`）/ 年月（`2025.09`→`2509`）/ 范围（`220215-260607`，取起点）。6 位日期后跟数字/字母也识别（`2203126kiri` → 素材日 220312 + 序号 6）。
 
 真实结构例：`作品名/220215-260607/231127-260607(fantia0)/231127_1(0)/xxx.mp4`
 → 4级 `231127_1(0)` 是具体日期 → 文件得 `231127_xxx.mp4`（P3；不取 3级范围起点）。
@@ -89,7 +120,7 @@ P5  全部无日期              → 不加前缀
 | 用户需求 | 组合 | 执行 |
 |---------|------|------|
 | 完整档案化（默认） | A → B | 先清洗再翻译 |
-| 只要结构处理 | A 模块 | `python -m archival_pipeline.cli <目录> --execute --backup <前缀>` |
+| 只要结构处理 | A 模块 | `python -m archival_pipeline.cli <目录> --execute`（自动备份） |
 | 只要翻译 | B 模块 | AI 直接处理（无脚本命令） |
 
 **顺序说明**：清洗在前——平台噪音先删，AI 翻译输入干净；日期/上下文继承后，日文目录名也一并翻译，上下文完整。
@@ -166,19 +197,21 @@ P5  全部无日期              → 不加前缀
 
 ## 脚本安全网（命令）
 
-技能根目录 = `C:\\Users\\Administrator\\AppData\\Local\\hermes\\skills\\Xi\\archival-ai\\`，命令需在此目录下运行：
+技能根目录 = `C:\Users\Administrator\AppData\Local\hermes\skills\Xi\archival-ai\`，命令需在此目录下运行：
 
 | 任务 | 命令 |
 |------|------|
-| 结构预览——人类对照（txt，源名→最终新名） | `python -m archival_pipeline.cli <目录> --preview pv.txt` |
+| 结构预览——人类对照（txt，相对路径源名→最终新名） | `python -m archival_pipeline.cli <目录> --preview`（无参默认生成到目标目录 `preview_<时间戳>.txt`） |
 | 结构预览——AI 机器可读（json） | `python -m archival_pipeline.cli <目录> --preview pv.json --format json` |
-| 结构执行+自动备份 | `python -m archival_pipeline.cli <目录> --execute`（备份自动存平台临时目录） |
-| 统一回滚 | `python -m archival_pipeline.cli --rollback <备份1> <备份2>` |
+| 结构执行（**自动备份**到平台临时目录） | `python -m archival_pipeline.cli <目录> --execute` |
+| 回滚（自动找最近备份） | `python -m archival_pipeline.cli <目录> --rollback`（无参） |
+| 回滚（指定备份文件） | `python -m archival_pipeline.cli <目录> --rollback <备份文件...>` |
 | 快速模式翻译预览（B5 缓存） | `python -m archival_pipeline.cli <目录> --translate table --preview pv.json --format txt` |
 | 平铺（可选，需显式） | `python -m archival_pipeline.cli <目录> --flatten` |
-| 回滚（自动找最近备份） | `python -m archival_pipeline.cli <目录> --rollback` |
-| 残留检测 | `python scripts/check_translation.py <目录>` |
+| 残留检测（假名/汉字残留） | `python scripts/check_translation.py <目录>` |
 | 自检（验证安全网） | `python scripts/selftest.py` |
+
+> 备份自动落盘（f2 undo 思路）：每次 `--execute` 后 JSON 备份存平台临时目录；`--rollback` 无参自动找匹配 target 的最近备份。自定义备份前缀 `--backup <前缀>` 可选。
 
 ### 双形态预览（执行前必须生成，给用户判断）
 
@@ -187,7 +220,7 @@ P5  全部无日期              → 不加前缀
 | **人类对照** | txt（默认） | 用户 | **相对被执行目录的完整路径**逐条对照（`源相对路径 → 目标相对路径`）+ 统计——保留全部层级（日期继承来源/档位/目录结构），去掉盘符冗余；人类看层级变化即可判断操作是否正确、是否符合需求 |
 | **AI 机器可读** | json | agent 后续处理 | 完整结构数据（original_paths/new_paths/statistics/steps） |
 
-> 两条预览的 new_paths 都是**最终名**（original → final 最终态对照，非中间态）——链式中间态只存在于执行内部，不对外报告。
+> 两条预览的 new_paths 都是**最终名**（original → final 最终态对照，非中间态）——链式中间态只存在于执行内部，不对外报告。**全量显示**：每个文件都有交代（变更对照 + 无变化清单——无变化本身是信息，证明已符合需求而非被漏掉）。
 
 > 精品模式（默认）不需要任何翻译命令——模块 B 由 AI 逐条理解完成，脚本只负责 A 模块 + 安全网。
 
@@ -197,6 +230,7 @@ P5  全部无日期              → 不加前缀
 | `archival_pipeline/steps/step2_inherit_prefix.py` | A4-A5（日期/上下文继承） | 纯结构，机械正确 |
 | `archival_pipeline/steps/conflict_detector.py` | 执行前冲突检测（链式覆盖/大小写碰撞/非法字符），有 error 阻断 | 安全放在执行层（pipeline.run 内自动调用） |
 | `archival_pipeline/backup.py` | 操作前 JSON 备份，`rollback_all` 一键回滚 | 安全放在执行层 |
+| `archival_pipeline/pipeline.py` | 链式预览/执行 + 后置验证（输出质量门控：非空/无连续分隔/无首尾分隔/扩展名保留） | 安全网 + 质量保障 |
 | `scripts/check_translation.py` | 假名/汉字残留检测 | 后置验证，不是前置替代 |
 | `archival_pipeline/steps/step0_translator.py` | B5 缓存翻译（快速模式专用） | 快速模式引擎；精品模式不使用 |
 
