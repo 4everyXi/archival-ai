@@ -48,11 +48,14 @@ def test_translate_only_explicit(tmp: Path):
 
 
 def test_conflict_detector_blocks():
-    """冲突检测：Windows 保留字符/保留名应阻断"""
-    from archival_pipeline.steps.conflict_detector import check_conflicts, has_errors, ConflictType
+    """冲突检测：Windows 保留字符/保留名应阻断（type 级强断言）"""
+    from archival_pipeline.steps.conflict_detector import check_conflicts, ConflictType
     from pathlib import Path
-    findings = check_conflicts([(Path("a.txt"), Path("b:bad.txt"))])
-    assert has_errors(findings), "FORBIDDEN_CHARS 应产生 error"
+    # FORBIDDEN_CHARS: 用 `<`（Windows 上 Path 保留的字符；冒号会被解析为 drive 分隔）
+    findings = check_conflicts([(Path("a.txt"), Path("b<bad.txt"))])
+    assert any(f.type == ConflictType.FORBIDDEN_CHARS for f in findings), \
+        "Windows 保留字符 < 应产生 FORBIDDEN_CHARS error"
+    # RESERVED_NAME: CON 设备名
     findings2 = check_conflicts([(Path("a.txt"), Path("CON.txt"))])
     assert any(f.type == ConflictType.RESERVED_NAME for f in findings2), \
         "Windows 保留名 CON 应产生 RESERVED_NAME error"
