@@ -20,6 +20,7 @@
 集成自 filebatch-prefixer (MIT):
   Source: https://github.com/rishabh-panda/filebatch-prefixer (commit 314f96e)
 """
+import calendar
 import re
 from datetime import datetime
 from pathlib import Path
@@ -62,11 +63,13 @@ _YYMMDD_HEAD = re.compile(r"^(\d{6})(?![0-9])")
 
 
 def _validate_date(s: str) -> bool:
-    """YYMMDD 合法性校验（月 1-12、日 1-31）——防误判纯数字 ID 为日期"""
+    """YYMMDD 合法性校验（含真实月天数）——防误判纯数字 ID/非法日期（2月30日）为日期"""
     if len(s) != 6 or not s.isdigit():
         return False
-    m, d = int(s[2:4]), int(s[4:6])
-    return 1 <= m <= 12 and 1 <= d <= 31
+    y, m, d = int(s[:2]), int(s[2:4]), int(s[4:6])
+    if not (1 <= m <= 12 and 1 <= d <= 31):
+        return False
+    return d <= calendar.monthrange(2000 + y, m)[1]
 
 
 def _full_to_yymmdd(s: str) -> str:
@@ -113,11 +116,6 @@ def extract_date_signal(name: str) -> tuple[str, str | None]:
         return ("single", _month_to_yymm(m.group(0)))
     return ("none", None)
 
-
-def extract_date_from_dirname(name: str) -> str | None:
-    """兼容接口：返回 yymmdd 或 None（不限具体/范围）"""
-    _type, date = extract_date_signal(name)
-    return date
 
 
 def get_date_prefix_from_mtime(file_path: Path) -> str | None:

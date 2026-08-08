@@ -7,12 +7,9 @@
 """
 import json
 import datetime
-import shutil
-from pathlib import Path
 from archival_pipeline.models import PipelineResult
 
 _formatters: dict[str, type] = {}
-_PREVIEW_LIMIT = 5  # 同级目录最多保留预览文件数
 
 
 def register_format(name: str, formatter_cls: type):
@@ -26,21 +23,6 @@ def render(name: str, result: PipelineResult) -> str:
         raise ValueError(f"Unknown format: {name}")
     return cls().render(result)
 
-
-def manage_preview_files(target_dir: Path):
-    """预览文件管理：超过 5 个时移入 previews/ 子目录"""
-    preview_files = sorted([
-        p for p in target_dir.iterdir()
-        if p.is_file() and p.name.startswith("preview_")
-    ])
-    if len(preview_files) <= _PREVIEW_LIMIT:
-        return
-    previews_dir = target_dir / "previews"
-    previews_dir.mkdir(exist_ok=True)
-    for pf in preview_files:
-        dest = previews_dir / pf.name
-        if not dest.exists():
-            shutil.move(str(pf), str(dest))
 
 
 class JsonFormatter:

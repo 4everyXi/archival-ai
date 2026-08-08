@@ -202,16 +202,6 @@ def has_errors(findings: list[ConflictFinding]) -> bool:
     return any(f.severity == 'error' for f in findings)
 
 
-def format_findings(findings: list[ConflictFinding]) -> str:
-    """格式化冲突发现为可读字符串。"""
-    if not findings:
-        return '✓ 未检测到冲突'
-
-    lines: list[str] = []
-    for f in findings:
-        tag = '[错误]' if f.severity == 'error' else '[警告]'
-        lines.append(f'{tag} {f.message}')
-    return '\\n'.join(lines)
 
 
 # ── RenameSolver (rnr solver.rs 移植) ──
