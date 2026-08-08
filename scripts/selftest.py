@@ -12,10 +12,10 @@ sys.path.insert(0, str(SKILL_ROOT))
 
 
 def make_tree(base: Path):
-    (base / "10003844-2025-06-04-キャラ名").mkdir(parents=True)
+    (base / "10003844-2025-06-04-キャラ名").mkdir(parents=True, exist_ok=True)
     (base / "10003844-2025-06-04-キャラ名" / "G36_01.mp4").write_text("x", encoding="utf-8")
     (base / "250717_素材_Colored_ver.mp4").write_text("x", encoding="utf-8")
-    (base / "10221804-2025-07-14-モブ差分" / "jpeg" / "500").mkdir(parents=True)
+    (base / "10221804-2025-07-14-モブ差分" / "jpeg" / "500").mkdir(parents=True, exist_ok=True)
     (base / "10221804-2025-07-14-モブ差分" / "jpeg" / "500" / "001.jpeg").write_text("x", encoding="utf-8")
 
 
@@ -86,6 +86,85 @@ def test_full_cycle(tmp: Path):
         "回滚后 001.jpeg 应恢复原名"
 
 
+def test_date_inheritance(tmp: Path):
+    """日期继承完备规则 P1-P5（覆盖所有组合）
+
+    结构:
+      tmp/作品名(无日期)/220215-260607(2级范围)/231127-260607(fantia0)(3级范围)/
+        231127_1(0)(4级具体)/2096f222_0zenra_24fps.mp4(无日期文件)
+        → P3 继承 4级具体 231127
+      tmp/作品名(无日期)/220215-260607/RJ01606066/
+        xxx.mp4 → P5 无日期，RJ 目录不进上下文
+      tmp/作品名/220215-260607/231127-260607(fantia0)/
+        231127-260607_xxx.mp4(文件带范围) → P2 文件范围起点 231127
+      tmp/作品名/220215-260607/2022-02-15-帖/
+        220208haru_ki.psd(文件带日期) → P1 保留 220208，不继承
+    """
+    from archival_pipeline.steps.step2_inherit_prefix import (
+        extract_date_signal, find_parent_date_and_context, compute_prefix,
+    )
+
+    # ── 信号识别单元测试 ──
+    assert extract_date_signal("231127-260607(fantia0)") == ("range", "231127")
+    assert extract_date_signal("240116-260315(fantia500)") == ("range", "240116")
+    assert extract_date_signal("220215-221012(fanbox500)") == ("range", "220215")
+    assert extract_date_signal("231127_1(0)") == ("single", "231127")
+    assert extract_date_signal("2022-02-15-ちんぐり搾精") == ("single", "220215")
+    assert extract_date_signal("2025.09.7z") == ("single", "2509")
+    assert extract_date_signal("250714") == ("single", "250714")
+    assert extract_date_signal("RJ01606066") == ("none", None)
+    assert extract_date_signal("2096f222_0zenra_24fps") == ("none", None)
+    assert extract_date_signal("(fantia500)") == ("none", None)
+    assert extract_date_signal("220208haru_ki") == ("single", "220208")
+
+    # ── 继承优先级集成测试 ──
+    # P3: 4级具体日期（最近）
+    f1 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "231127_1(0)" / "2096f222_0zenra_24fps.mp4"
+    f1.parent.mkdir(parents=True, exist_ok=True)
+    f1.write_text("x", encoding="utf-8")
+    date, ctx = find_parent_date_and_context(f1, tmp)
+    assert date == "231127", f"P3 应继承 4级具体日期 231127，实际 {date}"
+    assert ctx == "", f"上下文应为空（日期目录下无目录），实际 {ctx}"
+    assert compute_prefix(f1, tmp) == "231127_"
+
+    # P4+RJ: RJ 目录不提供日期，但更远的总范围提供起点；RJ 不进上下文
+    f2 = tmp / "作品名" / "220215-260607" / "RJ01606066" / "xxx.mp4"
+    f2.parent.mkdir(parents=True, exist_ok=True)
+    f2.write_text("x", encoding="utf-8")
+    date, ctx = find_parent_date_and_context(f2, tmp)
+    assert date == "220215", f"P4 应继承 2级范围起点 220215，实际 {date}"
+    assert "RJ01606066" not in ctx, f"RJ 目录不应进上下文，实际 {ctx}"
+    assert compute_prefix(f2, tmp) == "220215_", \
+        f"前缀应为 220215_（RJ 不进上下文），实际 {compute_prefix(f2, tmp)}"
+
+    # P2: 文件带范围 → 起点（不继承目录）
+    f3 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "231127-260607_xxx.mp4"
+    f3.parent.mkdir(parents=True, exist_ok=True)
+    f3.write_text("x", encoding="utf-8")
+    assert compute_prefix(f3, tmp) == "231127_", \
+        f"P2 文件范围应取起点 231127，实际 {compute_prefix(f3, tmp)}"
+
+    # P1: 文件带日期 → 保留（幂等，不继承）
+    f4 = tmp / "作品名" / "220215-260607" / "2022-02-15-帖" / "220208haru_ki.psd"
+    f4.parent.mkdir(parents=True, exist_ok=True)
+    f4.write_text("x", encoding="utf-8")
+    assert compute_prefix(f4, tmp) == "", "P1 文件自带日期应保留不继承"
+
+    # P4: 无具体日期时继承最近范围起点
+    f5 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "no_date.mp4"
+    f5.parent.mkdir(parents=True, exist_ok=True)
+    f5.write_text("x", encoding="utf-8")
+    date, ctx = find_parent_date_and_context(f5, tmp)
+    assert date == "231127", f"P4 应继承最近范围起点 231127，实际 {date}"
+
+    # P3 具体优先于 P4 范围: D1 范围 + D2 具体 → 取 D2 具体
+    f6 = tmp / "作品名" / "250714_总目录" / "231127-260607(fantia0)" / "file.mp4"
+    f6.parent.mkdir(parents=True, exist_ok=True)
+    f6.write_text("x", encoding="utf-8")
+    date, _ = find_parent_date_and_context(f6, tmp)
+    assert date == "250714", f"具体优先于范围：应取 2级具体 250714，实际 {date}"
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="archival_ai_selftest_"))
     try:
@@ -94,7 +173,8 @@ def main():
         test_translate_only_explicit(tmp)
         test_conflict_detector_blocks()
         test_full_cycle(tmp)
-        print("ALL PASS — 默认路径/快速模式/统计/冲突检测/回滚闭环 全部正确")
+        test_date_inheritance(tmp)
+        print("ALL PASS — 默认路径/快速模式/统计/冲突检测/回滚闭环/日期继承 全部正确")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

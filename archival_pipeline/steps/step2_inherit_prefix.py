@@ -1,10 +1,21 @@
 """Step 2: 日期提取与上下文继承 — 模块 A4/A5
 
 需求映射:
-- [A4] 日期提取与统一：多格式日期 → YYMMDD；文件自带日期优先（幂等，重复运行不变）
+- [A4] 日期提取与统一：任意名称（目录/文件）提取日期信号——具体日期 / 日期范围 / 无
 - [A5] 目录上下文继承：父目录名（无日期部分）作前缀，保留档案上下文
 - 为什么这样好: 只从已有信息提取、不新增语义（逆向思维）；mtime 回退是正向操作默认关闭，
   需显式启用——符合"只删不增、确定才动"原则
+
+日期继承完备规则（v2，覆盖所有组合）:
+  P1 文件自身有具体日期  → 用文件日期（最高：文件自己的信号最可信）
+  P2 文件自身有日期范围  → 用范围起点
+  P3 父目录链中第一个具体日期 → 用它（具体优先于范围；跳过无日期目录）
+  P4 父目录链中第一个日期范围 → 用范围起点
+  P5 全部无日期 → 不加前缀
+
+  排序原则: ① 文件信号 > 目录信号（靠近文件优先）；② 具体日期 > 日期范围
+  排除规则: RJ 编号 / 平台标记(价格) / 歧义格式(MM-DD) 不识别为日期
+  幂等性: 已带 YYMMDD 前缀的文件跳过（重复运行不变）
 
 集成自 filebatch-prefixer (MIT):
   Source: https://github.com/rishabh-panda/filebatch-prefixer (commit 314f96e)
@@ -18,14 +29,30 @@ from archival_pipeline.models import (
     StepPreview, StepResult, BackupData, FileMetadata,
 )
 
-# 日期模式
+# ── 排除模式 ─────────────────────────────────────────────────
+_RJ_PATTERN = re.compile(r"^RJ\d+", re.IGNORECASE)
+# 纯数字/短横目录（平台 ID 等，不是日期也不是上下文）
+_PURE_NUMERIC_DIR = re.compile(r"^[\d\-_]{2,8}$")
+
+# ── 日期范围模式（两个日期，取起点） ────────────────────────
+_RANGE_FULL = re.compile(
+    r"((?:19|20)\d{2}[-/_](?:0[1-9]|1[012])[-/_](?:0[1-9]|[12]\d|3[01]))"
+    r"\s*[-~～_/]\s*"
+    r"((?:19|20)\d{2}[-/_](?:0[1-9]|1[012])[-/_](?:0[1-9]|[12]\d|3[01]))"
+)
+_RANGE_YYMMDD = re.compile(r"(\d{6})\s*[-~～_/]\s*(\d{6})")
+_RANGE_MONTH = re.compile(
+    r"((?:19|20)\d{2}[._](?:0[1-9]|1[012]))\s*[-~～_/]\s*((?:19|20)\d{2}[._](?:0[1-9]|1[012]))"
+)
+
+# ── 具体日期模式 ─────────────────────────────────────────────
 _DATE_FULL_SEP = re.compile(
     r"(?:19|20)\d{2}[-/_](?:0[1-9]|1[012])[-/_](?:0[1-9]|[12]\d|3[01])"
 )
 _DATE_YEAR_MONTH_DOT = re.compile(
     r"(?:19|20)\d{2}[._](?:0[1-9]|1[012])(?:[._](?:0[1-9]|[12]\d|3[01]))?"
 )
-_YYMMDD_HEAD = re.compile(r"^(\d{6})(?:_|$)")
+_YYMMDD_HEAD = re.compile(r"^(\d{6})(?![0-9])")
 
 
 def _validate_date(s: str) -> bool:
@@ -35,21 +62,55 @@ def _validate_date(s: str) -> bool:
     return 1 <= m <= 12 and 1 <= d <= 31
 
 
-def extract_date_from_dirname(name: str) -> str | None:
-    """从目录名提取日期"""
+def _full_to_yymmdd(s: str) -> str:
+    """'2022-02-15' / '2022.02.15' / '2022/02/15' → '220215'"""
+    parts = re.split(r"[-/._]", s)
+    return parts[0][2:] + parts[1] + parts[2]
+
+
+def _month_to_yymm(s: str) -> str:
+    """'2025.09' → '2509'"""
+    parts = re.split(r"[._]", s)
+    return parts[0][2:] + parts[1]
+
+
+def extract_date_signal(name: str) -> tuple[str, str | None]:
+    """提取日期信号：具体日期 / 日期范围（返回起点）/ 无
+
+    返回 ("single"|"range"|"none", yymmdd)
+    - "single": 具体日期（YYMMDD / YYYY-MM-DD / YYYY.MM 月精度）
+    - "range":  日期范围（取起点，如 231127-260607 → 231127）
+    - "none":   无日期（RJ 编号、平台标记、纯数字 ID 等）
+    """
+    if _RJ_PATTERN.match(name):
+        return ("none", None)
+    # 范围优先（范围包含两个日期，先于具体识别）
+    m = _RANGE_FULL.search(name)
+    if m:
+        return ("range", _full_to_yymmdd(m.group(1)))
+    m = _RANGE_YYMMDD.search(name)
+    if m and _validate_date(m.group(1)):
+        return ("range", m.group(1))
+    m = _RANGE_MONTH.search(name)
+    if m:
+        return ("range", _month_to_yymm(m.group(1)))
+    # 具体日期
     m = _YYMMDD_HEAD.match(name)
     if m and _validate_date(m.group(1)):
-        return m.group(1)
+        return ("single", m.group(1))
     m = _DATE_FULL_SEP.match(name)
     if m:
-        g = m.group(0)
-        return g[2:4] + g[5:7] + g[8:10]
+        return ("single", _full_to_yymmdd(m.group(0)))
     m = _DATE_YEAR_MONTH_DOT.match(name)
     if m:
-        parts = re.split(r"[._]", m.group(0))
-        if len(parts) >= 2:
-            return parts[0][2:] + parts[1]
-    return None
+        return ("single", _month_to_yymm(m.group(0)))
+    return ("none", None)
+
+
+def extract_date_from_dirname(name: str) -> str | None:
+    """兼容接口：返回 yymmdd 或 None（不限具体/范围）"""
+    _type, date = extract_date_signal(name)
+    return date
 
 
 def get_date_prefix_from_mtime(file_path: Path) -> str | None:
@@ -64,65 +125,75 @@ def get_date_prefix_from_mtime(file_path: Path) -> str | None:
 def find_parent_date_and_context(
     path: Path, target_dir: Path,
 ) -> tuple[str | None, str]:
-    """从父目录链找日期和上下文
+    """从父目录链找日期（P3 具体优先，P4 范围兜底）和上下文
 
-    遍历父目录链，收集所有无日期的目录名作为上下文，
-    遇到第一个有日期的目录时停止，用它的日期作为前缀。
+    遍历父目录链（近→远）:
+      第一遍: 找第一个具体日期目录 → 用它（具体优先于范围）
+      第二遍: 没找到具体 → 找第一个日期范围目录 → 用起点
+      都没有 → 无日期
+
+    上下文 = 日期源之下（文件之上）的无日期目录名（反转成根→近顺序）。
+    全部无日期时，上下文 = 所有无日期目录（保留档案层级）。
 
     例: path=2025.09.7z/Furina-芙宁娜/芙芙.mp4
       1. 检查 Furina-芙宁娜 → 无日期，记录为上下文
-      2. 检查 2025.09.7z → 日期 2509，停止
+      2. 检查 2025.09.7z → 日期 2509（月精度），停止
       返回 ('2509', 'Furina-芙宁娜')
     """
-    contexts: list[str] = []
+    # 父目录链（近→远）
+    chain: list[Path] = []
     parent = path.parent
     while parent != target_dir and parent != parent.parent:
-        context = parent.name
-        date = extract_date_from_dirname(context)
-        if date:
-            # 去掉日期部分作为当前目录的上下文
-            rest = context
-            for pat in [_DATE_FULL_SEP, _DATE_YEAR_MONTH_DOT]:
-                m = pat.match(rest)
-                if m:
-                    rest = rest[m.end():].lstrip("-_ .")
-                    break
-            if rest and re.match(r"^[a-zA-Z0-9]{1,4}$", rest):
-                rest = ""
-            if rest:
-                contexts.insert(0, rest)
-            # 反转：按根目录到文件的顺序排列
-            contexts.reverse()
-            full_context = "_".join(contexts) if contexts else ""
-            return date, full_context
-        else:
-            # 无日期的目录，记作上下文
-            if context and not re.match(r"^[\d\-_]{2,8}$", context):
-                contexts.append(context)
+        chain.append(parent)
         parent = parent.parent
 
-    # 没找到任何日期
-    contexts.reverse()
-    return None, "_".join(contexts) if contexts else ""
+    def _context_below(idx: int) -> str:
+        """收集 chain[0..idx-1]（日期源之下）的无日期目录作为上下文"""
+        parts = []
+        for p in chain[:idx]:
+            t, _ = extract_date_signal(p.name)
+            if (t == "none"
+                    and not _PURE_NUMERIC_DIR.match(p.name)
+                    and not _RJ_PATTERN.match(p.name)):
+                parts.append(p.name)
+        parts.reverse()
+        return "_".join(parts)
+
+    # 第一遍: 最近的具体日期
+    for i, p in enumerate(chain):
+        t, d = extract_date_signal(p.name)
+        if t == "single":
+            return d, _context_below(i)
+    # 第二遍: 最近的范围（起点）
+    for i, p in enumerate(chain):
+        t, d = extract_date_signal(p.name)
+        if t == "range":
+            return d, _context_below(i)
+    # 无日期: 全部无日期目录作上下文
+    parts = [p.name for p in reversed(chain)
+             if not _PURE_NUMERIC_DIR.match(p.name)]
+    return None, "_".join(parts)
 
 
 def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False) -> str:
     """计算文件应有的前缀
 
-    逆向模式（默认）：
-      - 从父目录继承日期（纯机械，不增语义）
-      - 文件自身已有日期 → 跳过（幂等性）
-      - 父目录无日期 → 不加前缀
+    逆向模式（默认）:
+      - 文件自身有具体日期 → 保留（幂等，不继承）
+      - 文件自身有日期范围 → 用起点
+      - 从父目录继承日期（P3 具体优先 / P4 范围起点）
+      - 全部无日期 → 不加前缀
 
-    正向模式（allow_mtime=True）：
+    正向模式（allow_mtime=True）:
       - 父目录无日期时，用文件 mtime 作为回退
       - ⚠️ 这是正向操作（增加内容），应明确标识
     """
-    stem = file_path.stem
-    if _YYMMDD_HEAD.match(stem) and _validate_date(stem[:6]):
+    f_type, f_date = extract_date_signal(file_path.stem)
+    if f_type == "single":
         return ""
+    if f_type == "range":
+        return f_date + "_"
     date, context = find_parent_date_and_context(file_path, target_dir)
-    # mtime 回退是正向操作，默认不启用
     if not date and allow_mtime:
         date = get_date_prefix_from_mtime(file_path)
     parts = []
@@ -134,19 +205,13 @@ def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False)
 
 
 class Step2InheritPrefix(PipelineStep):
-    """日期继承：从父目录提取日期和上下文作为文件名前缀
+    """日期继承：文件/父目录日期提取 + 上下文前缀
 
-    逆向模式：
-      - 只从父目录提取已有的日期信息，不新增内容
-      - 文件自身有日期 → 跳过（幂等性）
-      - 父目录无日期 → 不加前缀
-
-    正向扩展（allow_mtime）：
-      - 允许用文件修改时间作为日期回退
-      - ⚠️ 这是正向操作，仅在明确指定时启用
+    完备规则见模块 docstring（P1-P5）。
     """
+
     name = "inherit_prefix"
-    description = "日期继承：从父目录提取日期/上下文作为前缀"
+    description = "日期继承：文件/父目录日期/范围提取作为前缀"
     allow_mtime: bool = False
 
     def preview(self, ctx: PipelineContext) -> StepPreview:
@@ -157,10 +222,16 @@ class Step2InheritPrefix(PipelineStep):
         ops = []
         changed = 0
         for i, rec in enumerate(ctx.records):
-            date, context = find_parent_date_and_context(
-                rec.current_path, ctx.target_dir)
-            if not date and allow_mtime:
-                date = get_date_prefix_from_mtime(rec.current_path)
+            f_type, f_date = extract_date_signal(rec.current_path.stem)
+            if f_type == "single":
+                continue  # 文件已带具体日期，幂等跳过
+            if f_type == "range":
+                date, context = f_date, ""  # 文件带范围 → 起点，不继承目录
+            else:
+                date, context = find_parent_date_and_context(
+                    rec.current_path, ctx.target_dir)
+                if not date and allow_mtime:
+                    date = get_date_prefix_from_mtime(rec.current_path)
 
             if template:
                 # 自定义模板（从 bulk-rename-py TokenProcessor 复制）
@@ -179,10 +250,6 @@ class Step2InheritPrefix(PipelineStep):
                 except ImportError:
                     new_name = None
             else:
-                # 默认: {date}_{context}_{name}{ext}
-                stem = rec.current_path.stem
-                if _YYMMDD_HEAD.match(stem) and _validate_date(stem[:6]):
-                    continue  # 文件已有日期前缀，跳过
                 parts = [p for p in [date, context] if p]
                 prefix = "_".join(parts) + "_" if parts else ""
                 new_name = prefix + rec.current_path.name if prefix else None
