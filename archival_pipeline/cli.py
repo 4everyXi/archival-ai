@@ -72,7 +72,8 @@ def main():
     """
     parser = argparse.ArgumentParser(description="archival_Super — 档案化管线统一入口")
     parser.add_argument("target", nargs="?", help="目标目录")
-    parser.add_argument("--preview", metavar="FILE", help="生成预览文件")
+    parser.add_argument("--preview", metavar="FILE", nargs="?", const="",
+                        help="生成预览文件到目标目录（默认 preview_<时间戳>.txt；可指定相对/绝对路径）")
     parser.add_argument("--format", choices=["json", "txt"], default="txt", help="预览输出格式")
     parser.add_argument("--full", action="store_true", help="完整列表模式：显示全部文件原名+译名")
     parser.add_argument("--execute", action="store_true", help="执行重命名")
@@ -184,8 +185,10 @@ def main():
             result = full_result
 
         output = render(args.format, result)
-        if args.preview:
-            preview_path = Path(args.preview)
+        if args.preview is not None:
+            # 默认在目标目录下生成人类预览（preview_<时间戳>.txt）——方便用户就地查看判断
+            preview_path = (Path(args.preview) if args.preview
+                            else Path(f"preview_{datetime.datetime.now():%Y%m%d_%H%M%S}.txt"))
             if not preview_path.is_absolute():
                 preview_path = target / preview_path
             preview_path.write_text(output, encoding="utf-8")

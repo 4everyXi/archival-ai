@@ -36,7 +36,9 @@ class Pipeline:
     def _init_records(self):
         self.context.records = []
         for p in sorted(self.context.target_dir.rglob("*")):
-            if p.is_file():
+            # 排除预览文件（preview_*.txt/json）——它们放在目标目录下供用户查看，
+            # 不能被当作归档对象处理（否则下次执行会把预览文件本身改名）
+            if p.is_file() and not p.name.startswith("preview_"):
                 self.context.records.append(
                     FileRecord(original_path=p, current_path=p)
                 )
