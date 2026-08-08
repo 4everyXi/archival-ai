@@ -7,6 +7,7 @@
 """
 import json
 import datetime
+from pathlib import Path
 from archival_pipeline.models import PipelineResult
 
 _formatters: dict[str, type] = {}
@@ -50,33 +51,44 @@ class TextFormatter:
     format_name = "txt"
 
     def render(self, result: PipelineResult) -> str:
-        """渲染为 TXT：文件对照清单（只显示文件名）+ 统计"""
+        """渲染为 TXT：全量文件对照（变更 + 无变化清单）+ 统计
+
+        人类预览必须每个文件都有交代——无变化本身是信息（已符合需求/无需处理，
+        而非被漏掉）。分组：变更显示源→目标对照，无变化显示清单。
+        """
         lines = []
         stats = result.statistics
         total = stats.get("total", 0)
         changed = stats.get("changed", 0)
+        skipped = stats.get("skipped", 0)
 
-        lines.append(f"共 {total} 个文件，{changed} 个变更\n")
+        lines.append(f"共 {total} 个文件，{changed} 个变更，{skipped} 个无变化\n")
 
         if not result.final_operations:
-            lines.append("（无变更）\n")
+            lines.append("（无文件）\n")
             return "".join(lines)
 
-        for op in result.final_operations:
-            # 相对被执行目录的完整路径（保留全部层级：日期继承来源/档位/目录结构），
-            # 去掉重复的盘符+根前缀——人类判断需求只需看 target 内部的相对结构
+        # 相对被执行目录的完整路径（保留全部层级：日期继承来源/档位/目录结构），
+        # 去掉重复的盘符+根前缀——人类判断需求只需看 target 内部的相对结构
+        def _rel(p: Path) -> str:
             try:
-                src = str(op.source.relative_to(result.target_dir))
-                dst = str(op.destination.relative_to(result.target_dir))
+                return str(p.relative_to(result.target_dir))
             except ValueError:
-                # 目标目录外（防御，正常不会发生）
-                src = str(op.source)
-                dst = str(op.destination)
-            if src == dst:
-                lines.append(f"  {src}  ->  {dst}\n")
-            else:
-                lines.append(f"  {src}\n")
-                lines.append(f"  -> {dst}\n")
+                return str(p)  # 目标目录外（防御）
+
+        changed_ops = [op for op in result.final_operations if op.source != op.destination]
+        unchanged = [op.source for op in result.final_operations if op.source == op.destination]
+
+        if changed_ops:
+            lines.append(f"\n[{changed} 个变更]\n")
+            for op in changed_ops:
+                lines.append(f"  {_rel(op.source)}\n")
+                lines.append(f"  -> {_rel(op.destination)}\n")
+
+        if unchanged:
+            lines.append(f"\n[{skipped} 个无变化]（已确认无需处理，非漏掉）\n")
+            for p in unchanged:
+                lines.append(f"  {_rel(p)}\n")
 
         return "".join(lines)
 

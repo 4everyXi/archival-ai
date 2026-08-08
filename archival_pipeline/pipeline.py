@@ -74,14 +74,14 @@ class Pipeline:
                     if rec.current_path == op.source:
                         rec.current_path = op.destination
                         break
-        # 报告 original → final（最终态，人类对照/AI 判断直接可读）
+        # 报告 original → final（全量：含无变更文件——人类预览必须每个文件都有交代，
+        # 无变化本身是信息：证明该文件已符合需求/无需处理，而非被漏掉）
         final_ops = [
             RenameOperation(rec.original_path, rec.current_path)
             for rec in sim_records
-            if rec.original_path != rec.current_path
         ]
         # 统计基于最终状态：total=文件数，changed=原路径≠最终路径的文件数
-        changed = len(final_ops)
+        changed = sum(1 for op in final_ops if op.source != op.destination)
         total_stats = {
             "total": len(sim_records),
             "changed": changed,
