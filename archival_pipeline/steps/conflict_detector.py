@@ -42,6 +42,7 @@ class ConflictType(enum.Enum):
     CASE_COLLISION = '大小写碰撞'
     FORBIDDEN_TRAIL = 'Windows禁止尾随字符'
     FORBIDDEN_CHARS = 'Windows保留字符'
+    RESERVED_NAME = 'Windows保留名(设备名)'
     EMPTY_TARGET = '目标路径为空'
     PATH_TOO_LONG = '路径超过MAX_PATH限制'
     SOURCE_MISSING = '源文件不存在'
@@ -116,12 +117,12 @@ def check_conflicts(changes: Iterable[tuple[Path, Path]]) -> list[ConflictFindin
                 message=f'Windows保留字符: "{new.name}"'
             ))
 
-    # ── 5. RESERVED_NAMES ──
+    # ── 5. RESERVED_NAME（Windows 设备名，pathvalidate 思想已集成）──
     for old, new in changes_list:
         stem = new.stem.upper()
         if stem in WINDOWS_RESERVED_NAMES:
             findings.append(ConflictFinding(
-                type=ConflictType.FORBIDDEN_CHARS,
+                type=ConflictType.RESERVED_NAME,
                 old_path=old, new_path=new, severity='error',
                 message=f'Windows保留名称: "{stem}"'
             ))

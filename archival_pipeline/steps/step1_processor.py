@@ -15,6 +15,7 @@
 """
 import itertools
 import re
+import unicodedata
 from pathlib import Path
 from archival_pipeline.steps.base import PipelineStep
 from archival_pipeline.models import (
@@ -134,6 +135,8 @@ def three_delete(name: str) -> str:
     """
     stem = Path(name).stem
     ext = Path(name).suffix
+    # A3: NFC 归一化（macOS NFD 与 Windows NFC 字节不同→同名共存；pathvalidate normalize 思想）
+    stem = unicodedata.normalize("NFC", stem)
     # A3: 全角→半角
     stem = stem.translate(_FULLWIDTH_TO_HALFWIDTH)
     # A3: 零宽字符

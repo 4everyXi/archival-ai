@@ -12,6 +12,16 @@
 - **不是**：给用户敲的命令行工具（CLI 是 agent 内部执行通道，不是面向用户的交付物）；也不是给 Python 代码 import 的库（跨技能复用走技能路由，不走 import）。
 - **核心范式**：AI 决定 → 用户确认 → 脚本执行 → 备份兜底（agent-first-design）。
 
+## 〇·一、设计思路来源（大神方案追溯）
+
+| 来源 | 贡献思路 | 在本技能中的体现 |
+|------|---------|-----------------|
+| **repo-port**（能力采购系统） | 成熟方案优先：不重复造轮子，先查现成工具；Source Lock 追溯来源 | 集成 detox（BSD-2）/ rename-clean（GPL-3.0）/ filebatch-prefixer（MIT）/ bulk-rename-py，代码内均有"集成自 X (license) + commit"注释（Source Lock 精神） |
+| **web-tool-router**（工具路由） | 按任务类型分诊到正确工具通道：机械任务走脚本/API，语义任务走 AI/浏览器兜底 | 模块 A（机械→脚本通道）vs 模块 B（语义→AI 通道）的分诊；agent 判断任务类型→选择工具；快速模式=脚本通道（缓存），精品模式=AI 通道（默认） |
+| agent-first-design | 智能体优先：AI 决定、用户确认、脚本执行、备份兜底 | 全部设计基石（SKILL.md 范式声明） |
+
+> 路由思想核心：**同一种任务，通道选择由 agent 判断**——机械的走脚本（快、确定、可回滚），语义的走 AI（理解、判断、搜索），安全永远在执行层。
+
 ## 一、能力模型（Capability Model）—— agent 的工具箱
 
 | 工具 | 入口 API | 形态 | 依赖 | agent 何时用 |

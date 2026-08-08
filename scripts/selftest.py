@@ -48,11 +48,14 @@ def test_translate_only_explicit(tmp: Path):
 
 
 def test_conflict_detector_blocks():
-    """冲突检测：Windows 保留字符应产生 error"""
-    from archival_pipeline.steps.conflict_detector import check_conflicts, has_errors
-
+    """冲突检测：Windows 保留字符/保留名应阻断"""
+    from archival_pipeline.steps.conflict_detector import check_conflicts, has_errors, ConflictType
+    from pathlib import Path
     findings = check_conflicts([(Path("a.txt"), Path("b:bad.txt"))])
     assert has_errors(findings), "FORBIDDEN_CHARS 应产生 error"
+    findings2 = check_conflicts([(Path("a.txt"), Path("CON.txt"))])
+    assert any(f.type == ConflictType.RESERVED_NAME for f in findings2), \
+        "Windows 保留名 CON 应产生 RESERVED_NAME error"
 
 
 def test_full_cycle(tmp: Path):
@@ -193,10 +196,13 @@ def test_structure_upgrades(tmp: Path):
     assert t("xxx - Copy.mp4") == "xxx.mp4"
     assert t("xxx副本.mp4") == "xxx.mp4"
     assert t("xxx- 副本 (2).mp4") == "xxx.mp4"
-    # ── A3: 全角→半角 / 中点 / 零宽 ──
+    # ── A3: 全角→半角 / 中点 / 零宽 / NFC ──
     assert t("２４fps.mp4") == "24fps.mp4"
     assert t("サキュバス・イリヤ.mp4") == "サキュバス_イリヤ.mp4"
     assert t("abc\u200bdef.mp4") == "abcdef.mp4", "零宽空格应删"
+    nfd_name = "cafe\u0301"  # é 分解形式（macOS NFD）
+    nfc_name = "café"        # é 合成形式（Windows NFC）
+    assert t(nfd_name + ".mp4") == nfc_name + ".mp4", "NFD 应归一化为 NFC"
     # ── A5: 档位标记 ──
     assert t("xxx(fantia500).mp4") == "xxx.mp4"
     assert t("xxx(fanbox500).mp4") == "xxx.mp4"
