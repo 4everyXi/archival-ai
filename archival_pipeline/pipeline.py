@@ -82,11 +82,13 @@ class Pipeline:
         ]
         # 统计基于最终状态：total=文件数，changed=原路径≠最终路径的文件数
         changed = sum(1 for op in final_ops if op.source != op.destination)
+        # 后置验证（sanitize postcondition）：输出质量门控，issues 计入 errors
+        validate_issues = self._post_validate(final_ops)
         total_stats = {
             "total": len(sim_records),
             "changed": changed,
             "skipped": len(sim_records) - changed,
-            "errors": 0,
+            "errors": len(validate_issues),
         }
         return PipelineResult(
             steps=list(self.context.step_results.values()),
@@ -147,9 +149,36 @@ class Pipeline:
             if rec.original_path != rec.current_path:
                 from archival_pipeline.models import RenameOperation
                 final_ops.append(RenameOperation(rec.original_path, rec.current_path))
+        # 后置验证（sanitize postcondition）：输出质量门控，issues 计入 errors
+        validate_issues = self._post_validate(final_ops)
+        total_stats["errors"] += len(validate_issues)
         total_stats["changed"] = len(final_ops)
         total_stats["skipped"] = total_stats["total"] - total_stats["changed"]
         return PipelineResult(steps=list(self.context.step_results.values()), final_operations=final_ops, statistics=total_stats)
+
+    def _post_validate(self, ops: list) -> list[str]:
+        """后置验证（Source Lock: sanitize postcondition validate()）
+
+        每次输出后检查是否符合预期格式——保障层（step1/step2 有边界 bug 时捕获）：
+          1. 新文件名不为空
+          2. 无连续分隔符（__）
+          3. 无首尾分隔符
+          4. 扩展名保留（不改变原扩展名）
+        """
+        issues = []
+        for op in ops:
+            dst = op.destination
+            stem = dst.stem
+            if not stem:
+                issues.append(f"{dst.name}: 新文件名为空")
+            elif stem != stem.strip("_"):
+                issues.append(f"{dst.name}: 首尾分隔符（{stem}）")
+            elif "__" in stem:
+                issues.append(f"{dst.name}: 连续分隔符（{stem}）")
+            if dst.suffix != op.source.suffix:
+                issues.append(
+                    f"{dst.name}: 扩展名改变（{op.source.suffix} → {dst.suffix}）")
+        return issues
 
     def _rollback_all(self):
         for step in reversed(self.steps):

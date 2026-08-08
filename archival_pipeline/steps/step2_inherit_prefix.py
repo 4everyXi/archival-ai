@@ -192,8 +192,9 @@ def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False)
     """计算文件应有的前缀
 
     逆向模式（默认）:
-      - 文件自身有具体日期 → 保留（幂等，不继承）
-      - 文件自身有日期范围 → 用起点
+      - 文件自身有日期 + 父目录有日期 → 目录发布日优先（素材复用场景：
+        200609haru1 在 220215 目录 → 220215_200609haru1，素材日期保留在原名）
+      - 文件自身有日期 + 无目录日期 → 文件日期即档案日期（幂等）
       - 从父目录继承日期（P3 具体优先 / P4 范围起点）
       - 全部无日期 → 不加前缀
 
@@ -203,8 +204,16 @@ def compute_prefix(file_path: Path, target_dir: Path, allow_mtime: bool = False)
     """
     f_type, f_date = extract_date_signal(file_path.stem)
     if f_type == "single":
+        # D3 修正：目录发布日优先——文件自带日期（素材日）≠ 目录日期时用目录日期作前缀
+        # （素材日期保留在原名）；已对齐目录日期 → 幂等返回空
+        parent_date, _ = find_parent_date_and_context(file_path, target_dir)
+        if parent_date:
+            if file_path.stem.startswith(parent_date):
+                return ""
+            return parent_date + "_"
         return ""
     if f_type == "range":
+        # 文件自带日期范围 → 起点（文件自身日期信号最强，不继承目录）
         return f_date + "_"
     date, context = find_parent_date_and_context(file_path, target_dir)
     if not date and allow_mtime:
@@ -238,9 +247,19 @@ class Step2InheritPrefix(PipelineStep):
         for i, rec in enumerate(ctx.records):
             f_type, f_date = extract_date_signal(rec.current_path.stem)
             if f_type == "single":
-                continue  # 文件已带具体日期，幂等跳过
-            if f_type == "range":
-                date, context = f_date, ""  # 文件带范围 → 起点，不继承目录
+                # D3 修正：目录发布日优先——文件自带日期（素材日）≠ 目录日期时
+                # 用目录日期作前缀（素材日期保留在原名，如 200609haru1 → 220215_200609haru1）
+                parent_date, _ = find_parent_date_and_context(
+                    rec.current_path, ctx.target_dir)
+                if parent_date:
+                    if rec.current_path.stem.startswith(parent_date):
+                        continue  # 已对齐目录日期，幂等
+                    date, context = parent_date, ""
+                else:
+                    continue  # 无目录日期：文件日期即档案日期，幂等
+            elif f_type == "range":
+                # 文件自带日期范围 → 起点（文件自身日期信号最强，不继承目录）
+                date, context = f_date, ""
             else:
                 date, context = find_parent_date_and_context(
                     rec.current_path, ctx.target_dir)

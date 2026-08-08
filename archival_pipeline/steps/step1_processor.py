@@ -105,6 +105,29 @@ def _is_hex(s: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]+", s)) and re.search(r"[a-fA-F]", s)
 
 
+# v2 补全: 分辨率标准化（源: reverse_archival_processor_v2._normalize_resolution）
+# 数字边界 (?<!\d)/(?!\d) 防止误匹配日期范围（231127_260607 的 1127_2606 非分辨率）
+_RESOLUTION_PATTERN = re.compile(r"(?<!\d)(\d{3,4})[x×_](\d{3,4})(?!\d)")
+_KNOWN_RESOLUTIONS = {
+    (1920, 1080): "1080p", (1280, 720): "720p", (3840, 2160): "4K",
+    (2560, 1440): "1440p", (640, 480): "480p", (320, 240): "240p",
+}
+
+
+def _normalize_resolution(stem: str) -> str:
+    """标准化分辨率：1920x1080 / 1280_720 → 1080p / 720p（已知表 + 高度兜底）
+
+    机械确定（宽×高映射），真实目录高频（jururiDF1_1280_720 等）。
+    """
+    def _repl(m: "re.Match") -> str:
+        w, h = int(m.group(1)), int(m.group(2))
+        if (w, h) in _KNOWN_RESOLUTIONS:
+            return _KNOWN_RESOLUTIONS[(w, h)]
+        return f"{h}p" if h > 0 else m.group(0)
+
+    return _RESOLUTION_PATTERN.sub(_repl, stem)
+
+
 def apply_safe_table(name: str) -> str:
     """应用 safe table：只替换确定噪音字符
 
@@ -167,11 +190,16 @@ def three_delete(name: str) -> str:
     # A2: 重复扩展名
     while ext and stem.endswith(ext):
         stem = stem[: -len(ext)]
-    # A3: 统一分隔符（半角连字符、日文名字中点 → _）
-    stem = stem.replace("-", "_").replace("・", "_")
-    # D8: 非扩展名点号统一为 _（juri_kijoui.48fps → juri_kijoui_48fps；
-    #     真扩展名已被 Path.suffix 分离，stem 内点号均为标记/中间扩展名）
-    stem = stem.replace(".", "_")
+    # A3: 统一分隔符（空格/半角连字符/日文名字中点 → _）
+    stem = stem.replace(" ", "_").replace("-", "_").replace("・", "_")
+    # D8 修正: 非扩展名点号统一为 _，但数字间小数点豁免（RIFE4.0 版本号保留；
+    #          juri_kijoui.48fps 点前是字母仍转 _）
+    stem = re.sub(r"\.(?![0-9])", "_", stem)
+    stem = re.sub(r"(?<![0-9])\.", "_", stem)
+    # v2 补全: 分辨率标准化（1920x1080→1080p，源: _normalize_resolution）
+    stem = _normalize_resolution(stem)
+    # v2 补全: 折叠连续分隔符 + 去首尾（detox clean_wipeup 思想；xxx__yyy → xxx_yyy）
+    stem = re.sub(r"_{2,}", "_", stem).strip("_")
     return stem + ext
 
 

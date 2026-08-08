@@ -150,11 +150,12 @@ def test_date_inheritance(tmp: Path):
     assert compute_prefix(f3, tmp) == "231127_", \
         f"P2 文件范围应取起点 231127，实际 {compute_prefix(f3, tmp)}"
 
-    # P1: 文件带日期 → 保留（幂等，不继承）
+    # D3 修正: 文件带日期 + 目录有日期 → 目录发布日优先（素材复用场景，素材日期保留原名）
     f4 = tmp / "作品名" / "220215-260607" / "2022-02-15-帖" / "220208haru_ki.psd"
     f4.parent.mkdir(parents=True, exist_ok=True)
     f4.write_text("x", encoding="utf-8")
-    assert compute_prefix(f4, tmp) == "", "P1 文件自带日期应保留不继承"
+    assert compute_prefix(f4, tmp) == "220215_", \
+        "D3: 目录发布日优先——文件素材日期(220208)被目录(220215)覆盖为前缀"
 
     # P4: 无具体日期时继承最近范围起点
     f5 = tmp / "作品名" / "220215-260607" / "231127-260607(fantia0)" / "no_date.mp4"
@@ -206,9 +207,9 @@ def test_structure_upgrades(tmp: Path):
     nfd_name = "cafe\u0301"  # é 分解形式（macOS NFD）
     nfc_name = "café"        # é 合成形式（Windows NFC）
     assert t(nfd_name + ".mp4") == nfc_name + ".mp4", "NFD 应归一化为 NFC"
-    # ── D7: 全角数字贴半角 → 加分隔符（防合并歧义）──
-    assert t("jururiTZS1_１1920_1080.mov") == "jururiTZS1_1_1920_1080.mov", \
-        "全角数字贴半角应加 _ 分隔（１1920 → 1_1920）"
+    # ── D7: 全角数字贴半角 → 加分隔符（防合并歧义；分辨率标准化同链生效）──
+    assert t("jururiTZS1_１1920_1080.mov") == "jururiTZS1_1_1080p.mov", \
+        "全角贴半角加 _ 分隔 + 分辨率标准化（１1920_1080 → 1_1080p）"
     # ── D8: 非扩展名点号统一为 _ ──
     assert t("juri_kijoui.48fps.mp4") == "juri_kijoui_48fps.mp4", "非扩展名点号应转 _"
     # ── A5: 档位标记 ──
