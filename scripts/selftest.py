@@ -183,6 +183,16 @@ def test_date_inheritance(tmp: Path):
     assert "12184175" not in ctx and "75-" not in ctx, f"平台 ID 应删除且不截断，实际 {ctx}"
     assert "カチーナ" in ctx, f"标题应继承，实际 {ctx}"
 
+    # YYYYMMDD 紧凑格式（20260215 → 260215；8 位日期非平台 ID）
+    f9 = tmp / "20260215-カチーナ" / "001.png"
+    f9.parent.mkdir(parents=True, exist_ok=True)
+    f9.write_text("x", encoding="utf-8")
+    assert extract_date_signal("20260215-カチーナ") == ("single", "260215"), \
+        f"YYYYMMDD 紧凑应识别，实际 {extract_date_signal('20260215-カチーナ')}"
+    date, ctx = find_parent_date_and_context(f9, tmp)
+    assert date == "260215" and "20260215" not in ctx and "カチーナ" in ctx, \
+        f"YYYYMMDD 完整链，实际 {(date, ctx)}"
+
 
 def test_structure_upgrades(tmp: Path):
     """A1/A2/A3/A5 通用化升级验证（three_delete 主链）"""

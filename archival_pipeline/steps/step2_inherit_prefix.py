@@ -40,6 +40,8 @@ _PURE_NUMERIC_DIR = re.compile(r"^[\d\-_]{2,8}$")
 _RE_TIER_TAG = re.compile(
     r"\(?(?:fantia|fanbox|patreon|ci[-_]?en|gumroad)\s*\d*\)?|\(\d+\)", re.IGNORECASE,
 )
+# YYYYMMDD 紧凑格式（20260215 → 260215）——区分平台 ID（8 位非日期）与 8 位日期
+_YYYYMMDD_COMPACT = re.compile(r"(?:19|20)\d{2}(?:0[1-9]|1[012])(?:0[1-9]|[12]\d|3[01])")
 
 # ── 日期范围模式（两个日期，取起点） ────────────────────────
 _RANGE_FULL = re.compile(
@@ -115,6 +117,11 @@ def extract_date_signal(name: str) -> tuple[str, str | None]:
     m = _DATE_FULL_SEP.search(name)
     if m:
         return ("single", _full_to_yymmdd(m.group(0)))
+    # YYYYMMDD 紧凑（20260215 → 260215；8 位且 19xx/20xx 开头才是日期，平台 ID 不受影响）
+    m = _YYYYMMDD_COMPACT.match(name)
+    if m:
+        d = m.group(0)
+        return ("single", d[2:4] + d[4:6] + d[6:8])
     m = _DATE_YEAR_MONTH_DOT.match(name)
     if m:
         return ("single", _month_to_yymm(m.group(0)))
@@ -166,15 +173,14 @@ def find_parent_date_and_context(
         """
         n = name
         # 去开头平台 ID（8 位数字，fantia/fanbox 作品号——A1 平台 ID 规则：
-        # 8 位非日期数字是平台 ID；8 位合法日期（YYYYMMDD）豁免）
-        if not re.fullmatch(r"\d{8}", n[:8]) or _validate_date(n[:8]):
-            pass
-        else:
+        # 8 位非日期数字是平台 ID；8 位合法日期（YYYYMMDD/YYYY-MM-DD）豁免）
+        if re.fullmatch(r"\d{8}", n[:8]) and not _YYYYMMDD_COMPACT.fullmatch(n[:8]):
             n = re.sub(r"^\d{8}(?:[-_ ]|$)", "", n)
         # 去日期部分（从开头匹配的日期格式去掉；YYMMDD 需 _validate_date 校验，
         # 防止 12184175 的 121841（非法日期）被当日期截断）
         for pat in (_RANGE_FULL, _RANGE_YYMMDD, _RANGE_MONTH,
-                    _YYMMDD_HEAD, _DATE_FULL_SEP, _DATE_YEAR_MONTH_DOT):
+                    _YYMMDD_HEAD, _DATE_FULL_SEP, _YYYYMMDD_COMPACT,
+                    _DATE_YEAR_MONTH_DOT):
             m = pat.match(n)
             if not m:
                 continue
