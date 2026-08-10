@@ -66,13 +66,10 @@ def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
 
 
 def gen_translation_list(target: Path) -> None:
-    """生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt + 路径清单.txt
+    """生成翻译工作区：<目标>\\_translation\\ + 文件三件套 + 目录三件套
 
-    文档①（用户拍板设计）：只包含所有文件的原名，**不含任何路径**——
-    AI/用户基于它逐条手动翻译，产出译名清单（同序一一对应）。
-
-    路径清单.txt：与原名清单**一起生成、同序一一对应**（第 N 行 = 第 N 个原名的
-    相对路径）——AI 拿到译名后按路径定位文件重命名（原名无路径无法定位）。
+    文件（原名/路径/译名）：只含文件名无路径——AI/用户手动翻译产译名清单（同序）。
+    目录（目录原名/目录路径/目录译名）：翻译目录名用（如平台ID+日文作品名目录）。
     """
     ws = target / "_translation"
     ws.mkdir(exist_ok=True)
@@ -91,9 +88,101 @@ def gen_translation_list(target: Path) -> None:
     paths = [r for _, r in items]
     (ws / "原名清单.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
     (ws / "路径清单.txt").write_text("\n".join(paths) + "\n", encoding="utf-8")
-    print(f"翻译工作区已创建: {ws}")
-    print(f"原名清单（{len(names)} 个文件，仅文件名无路径）: {ws / '原名清单.txt'}")
+    # 三件套一次生成：译名清单（空占位——AI 通过原名/路径清单生成；已存在则保留）
+    # ponytail: AI 已填充的译名不清空——gen 只负责"补缺失"
+    trans_file = ws / "译名清单.txt"
+    if not trans_file.exists():
+        trans_file.write_text("", encoding="utf-8")
+        trans_status = "（空占位——待 AI 通过原名/路径清单生成）"
+    else:
+        trans_status = "（已存在——保留不覆盖）"
+    # 目录名清单（同序三件套：目录原名/目录路径/目录译名——翻译目录用）
+    dirs = sorted(d for d in target.iterdir() if d.is_dir() and d.name != "_translation")
+    dir_names = [d.name for d in dirs]
+    dir_paths = [d.relative_to(target).as_posix() for d in dirs]
+    (ws / "目录原名清单.txt").write_text("\n".join(dir_names) + "\n", encoding="utf-8")
+    (ws / "目录路径清单.txt").write_text("\n".join(dir_paths) + "\n", encoding="utf-8")
+    dir_trans_file = ws / "目录译名清单.txt"
+    if not dir_trans_file.exists():
+        dir_trans_file.write_text("", encoding="utf-8")
+        dir_trans_status = "（空占位——待 AI 生成）"
+    else:
+        dir_trans_status = "（已存在——保留不覆盖）"
+
+    print(f"翻译工作区已生成: {ws}")
+    print(f"  原名清单.txt（{len(names)} 个文件）+ 路径清单.txt + 译名清单.txt{trans_status}")
+    print(f"  目录原名清单.txt（{len(dir_names)} 个目录）+ 目录路径清单.txt + 目录译名清单.txt{dir_trans_status}")
     print(f"路径清单（{len(paths)} 行，与原名清单同序一一对应）: {ws / '路径清单.txt'}")
+
+
+def apply_dir_translation(target: Path, translated_file: Path,
+                          preview: bool = False, execute: bool = False) -> None:
+    """目录名翻译应用：目录译名清单（同序配 目录原名/路径清单）→ 预览/重命名 + 备份
+
+    三件套同序配对（一起生成才对应）：目录原名清单[i] / 目录路径清单[i] / 译名清单[i]——
+    路径定位目录 + 原名校验（防 AI 幻觉/文件变动）→ 重命名 + save_backup（回滚通用）。
+    翻译目标重名 → A6 兜底（ensure_unique _2，与文件翻译一致）。
+    # ponytail: 不走 pipeline（step3）——目录不在 records 范围（_init_records 只收文件），
+    # 独立命令更简单；备份/原名校验/A6 与 step3 同模式（保持一致）。
+    """
+    ws = target / "_translation"
+    dir_orig = [l.rstrip() for l in (ws / "目录原名清单.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
+    dir_paths = [l.rstrip() for l in (ws / "目录路径清单.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
+    translated = [l.rstrip() for l in translated_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+    if not (len(dir_orig) == len(dir_paths) == len(translated)):
+        print(f"三件套行数不一致: 目录原名 {len(dir_orig)} / 路径 {len(dir_paths)} / 译名 {len(translated)}")
+        return
+
+    changed, errors = 0, []
+    ops = []  # [(old_path, new_name)]——仅校验通过的变更
+    for orig, rel, trans in zip(dir_orig, dir_paths, translated):
+        d = target / rel
+        # 路径定位 + 原名校验（防 AI 幻觉改名/执行前目录变动）——失败跳过不执行
+        if not d.exists():
+            errors.append(f"目录不存在: {rel}")
+            continue
+        if d.name != orig:
+            errors.append(f"原名校验失败: {rel}（清单 {orig} vs 实际 {d.name}）")
+            continue
+        if trans != orig:
+            ops.append((d, trans))
+            changed += 1
+
+    if errors:
+        print(f"检测到 {len(errors)} 个错误（已跳过，不会执行）:")
+        for e in errors:
+            print(f"  ⚠ {e}")
+    print(f"共 {len(dir_orig)} 个目录，{changed} 个变更，{len(dir_orig) - changed} 个无变化")
+
+    if preview:
+        for d, trans in ops:
+            print(f"  {d.relative_to(target)}  →  {trans}")
+        print("[预览模式——未执行]")
+        return
+
+    if execute:
+        from archival_pipeline.backup import save_backup
+        # 先备份后改名（与 step1/step3 同模式——回滚通用，不区分模块）
+        # 备份文件路径 = _auto_backup_dir()/hash-step-时间戳.json（复用 cli 自动备份命名）
+        backup = [{"original": str(d), "new": str(d.with_name(trans))} for d, trans in ops]
+        if backup:
+            backup_file = _auto_backup_dir() / (
+                f"{_target_hash(target)}-dir_translate-"
+                f"{datetime.datetime.now():%Y%m%d%H%M%S}.json"
+            )
+            save_backup(backup, backup_file, "dir_translate")
+            print(f"备份已保存: {backup_file}")
+        for d, trans in ops:
+            dest = d.with_name(trans)
+            if dest.exists():  # A6 兜底：目标重名 → 追加 _2/_3（与文件 ensure_unique 一致）
+                # ponytail: 目录名含点（如 `.psd` 伪扩展名）时按"扩展名"拆——`春ちゃん.psd` → `春ちゃん_2.psd`
+                stem, sfx = trans.rsplit(".", 1) if "." in trans else (trans, "")
+                n = 2
+                while dest.exists():
+                    dest = d.with_name(f"{stem}_{n}{'.' + sfx if sfx else ''}")
+                    n += 1
+            d.rename(dest)
+        print("完成")
 
 
 def main():
@@ -118,6 +207,8 @@ def main():
     parser.add_argument("--step-config", metavar="KEY=VALUE", action="append", help="步骤配置")
     parser.add_argument("--apply-translation", metavar="MAPPING_JSON",
                         help="翻译应用：AI 产出的翻译映射（对照组 json）→ 执行/预览 + 备份")
+    parser.add_argument("--apply-dir-translation", metavar="TRANSLATED_LIST",
+                        help="目录名翻译应用：目录译名清单.txt（同序配 目录原名/路径清单）→ 重命名 + 备份")
     parser.add_argument("--gen-translation-list", action="store_true",
                         help="生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt（仅文件名，无路径）")
     parser.add_argument("--template", metavar="FORMAT", help="命名模板")
@@ -164,6 +255,11 @@ def main():
 
     if args.gen_translation_list:
         gen_translation_list(target)
+        return
+
+    if args.apply_dir_translation:
+        apply_dir_translation(target, Path(args.apply_dir_translation),
+                              preview=args.preview is not None, execute=args.execute)
         return
 
     p = Pipeline(target, config=config, step_configs=step_configs, dry_run=not args.execute)
