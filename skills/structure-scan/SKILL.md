@@ -1,6 +1,6 @@
 ---
 name: structure-scan
-description: "[Process] 档案化结构扫描：判断技能能否处理该目录；不能则增量扩展。触发：新目录/结构扫描/能否处理/通用性。"
+description: "[Process] Use when 档案化遇到新目录/需判断能否处理/结构不通用需增量扩展。"
 license: Apache-2.0
 version: 1.0.0
 author: Xi
