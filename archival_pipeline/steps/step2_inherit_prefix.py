@@ -110,18 +110,19 @@ def extract_date_signal(name: str) -> tuple[str, str | None]:
     if m:
         return ("range", _month_to_yymm(m.group(1)))
     # 具体日期
-    m = _YYMMDD_HEAD.match(name)
-    if m and _validate_date(m.group(1)):
-        return ("single", m.group(1))
     # FULL 日期（YYYY-MM-DD）search：可在平台 ID 后（12184175-2026-07-02-カチーナ → 2026-07-02）
     m = _DATE_FULL_SEP.search(name)
     if m:
         return ("single", _full_to_yymmdd(m.group(0)))
-    # YYYYMMDD 紧凑（20260215 → 260215；8 位且 19xx/20xx 开头才是日期，平台 ID 不受影响）
+    # YYYYMMDD 紧凑（20260215 → 260215）——8 位完整格式优先于 6 位 YYMMDD
+    # （20100228 的 201002 恰好是合法 YYMMDD，但 8 位整体语义是 2010-02-28）
     m = _YYYYMMDD_COMPACT.match(name)
     if m:
         d = m.group(0)
         return ("single", d[2:4] + d[4:6] + d[6:8])
+    m = _YYMMDD_HEAD.match(name)
+    if m and _validate_date(m.group(1)):
+        return ("single", m.group(1))
     m = _DATE_YEAR_MONTH_DOT.match(name)
     if m:
         return ("single", _month_to_yymm(m.group(0)))
