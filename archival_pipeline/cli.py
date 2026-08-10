@@ -66,15 +66,18 @@ def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
 
 
 def gen_translation_list(target: Path) -> None:
-    """生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt
+    """生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt + 路径清单.txt
 
     文档①（用户拍板设计）：只包含所有文件的原名，**不含任何路径**——
-    AI/用户基于它逐条手动翻译，产出文档②（译名清单，同序一一对应）。
+    AI/用户基于它逐条手动翻译，产出译名清单（同序一一对应）。
+
+    路径清单.txt：与原名清单**一起生成、同序一一对应**（第 N 行 = 第 N 个原名的
+    相对路径）——AI 拿到译名后按路径定位文件重命名（原名无路径无法定位）。
     """
     ws = target / "_translation"
     ws.mkdir(exist_ok=True)
     # 与 pipeline 同一扫描排除规则（preview_* + _translation）
-    names = []
+    items = []  # (原名, 相对路径)
     for p in sorted(target.rglob("*")):
         if not p.is_file():
             continue
@@ -82,11 +85,15 @@ def gen_translation_list(target: Path) -> None:
             continue
         if "_translation" in p.relative_to(target).parts:
             continue
-        names.append(p.name)
-    list_file = ws / "原名清单.txt"
-    list_file.write_text("\n".join(names) + "\n", encoding="utf-8")
+        rel = str(p.relative_to(target)).replace("\\", "/")
+        items.append((p.name, rel))
+    names = [n for n, _ in items]
+    paths = [r for _, r in items]
+    (ws / "原名清单.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
+    (ws / "路径清单.txt").write_text("\n".join(paths) + "\n", encoding="utf-8")
     print(f"翻译工作区已创建: {ws}")
-    print(f"原名清单（{len(names)} 个文件，仅文件名无路径）: {list_file}")
+    print(f"原名清单（{len(names)} 个文件，仅文件名无路径）: {ws / '原名清单.txt'}")
+    print(f"路径清单（{len(paths)} 行，与原名清单同序一一对应）: {ws / '路径清单.txt'}")
 
 
 def main():

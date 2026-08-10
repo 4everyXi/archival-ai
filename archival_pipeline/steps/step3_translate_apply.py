@@ -50,17 +50,21 @@ class Step3TranslateApply(PipelineStep):
             data = json.loads(self.mapping_file.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
         if sfx == ".txt":
-            # 同序译名清单：配 _translation/原名清单.txt 按行配对
+            # 同序译名清单（文档③）：配 _translation/原名清单.txt + 路径清单.txt
+            # 三份同序一一对应（一起生成）——第 N 行：原名=清单①[N]、路径=清单②[N]、
+            # 译名=清单③[N]。路径用于定位文件，原名用于校验（防 AI 幻觉/文件变动）。
             ws = self.mapping_file.parent
             orig_file = ws / "原名清单.txt"
-            if not orig_file.exists():
+            path_file = ws / "路径清单.txt"
+            if not orig_file.exists() or not path_file.exists():
                 return []
             originals = [l.rstrip("\r\n") for l in orig_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+            paths = [l.rstrip("\r\n") for l in path_file.read_text(encoding="utf-8").splitlines() if l.strip()]
             translated = [l.rstrip("\r\n") for l in self.mapping_file.read_text(encoding="utf-8").splitlines() if l.strip()]
             mapping = []
             for i, orig in enumerate(originals):
                 mapping.append({
-                    "path": "",  # 无路径——按原名匹配（同名文件全部应用同译名）
+                    "path": paths[i] if i < len(paths) else "",
                     "original": orig,
                     "translated": translated[i] if i < len(translated) else orig,
                 })
