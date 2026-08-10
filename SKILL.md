@@ -60,6 +60,11 @@ metadata:
       → B4 基调与一致性 → B5 译名缓存维护
 ```
 
+**子技能**：`skills/structure-scan/`（结构扫描与通用性增量）——每次面对**新目录**，
+先扫描结构判断能否处理；不能 → 增量扩展技能（覆盖本次 + 保留之前）。
+调用方式：读 `skills/structure-scan/SKILL.md` + `python skills/structure-scan/scripts/scan_structure.py <目录>`。
+对照基准：`capability-matrix.md`（能力覆盖矩阵）。
+
 ### 模块 A：文件名清洗和规范化（脚本为主）
 
 > **核心设计理念：逆向清除（v1/v2 传承）——"举证责任在删除方，不确定的就不动"**
