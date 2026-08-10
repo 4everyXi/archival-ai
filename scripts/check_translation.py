@@ -125,8 +125,8 @@ def _check_list_mode(list_file: Path) -> None:
         comp = [c for c in comp if not any(p in KEEP_EN for p in c.split("_"))]
         if comp:
             issues["下划线复合词残留"].append((line, comp))
-        # ④ 单字书面词（性/桌/爱 单字——按基调选口语双字）
-        single = re.findall(r"_(?:性|桌|爱|操|幼|裸)_", f"_{stem}_")
+        # ④ 单字书面词（抽象书面词——性/爱/操 单字干瘪；"桌"等具体名词=忠实直译不报）
+        single = re.findall(r"_(?:性|爱|操|幼|裸)_", f"_{stem}_")
         if single:
             issues["单字书面词"].append((line, single))
 
