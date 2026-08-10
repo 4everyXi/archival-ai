@@ -65,6 +65,30 @@ def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
     print(f"\n平铺完成: {moved} 个文件移到根目录")
 
 
+def gen_translation_list(target: Path) -> None:
+    """生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt
+
+    文档①（用户拍板设计）：只包含所有文件的原名，**不含任何路径**——
+    AI/用户基于它逐条手动翻译，产出文档②（译名清单，同序一一对应）。
+    """
+    ws = target / "_translation"
+    ws.mkdir(exist_ok=True)
+    # 与 pipeline 同一扫描排除规则（preview_* + _translation）
+    names = []
+    for p in sorted(target.rglob("*")):
+        if not p.is_file():
+            continue
+        if p.name.startswith("preview_"):
+            continue
+        if "_translation" in p.relative_to(target).parts:
+            continue
+        names.append(p.name)
+    list_file = ws / "原名清单.txt"
+    list_file.write_text("\n".join(names) + "\n", encoding="utf-8")
+    print(f"翻译工作区已创建: {ws}")
+    print(f"原名清单（{len(names)} 个文件，仅文件名无路径）: {list_file}")
+
+
 def main():
     """CLI 入口：预览/执行/回滚/残留检测
 
@@ -83,8 +107,12 @@ def main():
     parser.add_argument("--rollback", metavar="FILE", nargs="*", help="从备份回滚（无参数时自动找最近自动备份）")
     parser.add_argument("--config", help="配置文件")
     parser.add_argument("--translate", choices=["table"], nargs="?",
-                        const="table", help="快速模式：常用词缓存翻译（AI 翻译不走此选项）")
+                        const="table", help="快速模式缓存翻译（B5）")
     parser.add_argument("--step-config", metavar="KEY=VALUE", action="append", help="步骤配置")
+    parser.add_argument("--apply-translation", metavar="MAPPING_JSON",
+                        help="翻译应用：AI 产出的翻译映射（对照组 json）→ 执行/预览 + 备份")
+    parser.add_argument("--gen-translation-list", action="store_true",
+                        help="生成翻译工作区：创建 <目标>\\_translation\\ + 原名清单.txt（仅文件名，无路径）")
     parser.add_argument("--template", metavar="FORMAT", help="命名模板")
     parser.add_argument("--flatten", choices=["all", "archived"], nargs="?", const="all", help="平铺")
     args = parser.parse_args()
@@ -127,6 +155,10 @@ def main():
         flatten(target, args.flatten)
         return
 
+    if args.gen_translation_list:
+        gen_translation_list(target)
+        return
+
     p = Pipeline(target, config=config, step_configs=step_configs, dry_run=not args.execute)
 
     if args.translate:
@@ -142,6 +174,11 @@ def main():
     from archival_pipeline.steps.step2_inherit_prefix import Step2InheritPrefix
     p.register(Step1Processor())
     p.register(Step2InheritPrefix())
+
+    if args.apply_translation:
+        # 模块 B 执行端：AI 翻译映射（对照组 json）→ 预览/执行 + 自动备份（回滚通用）
+        from archival_pipeline.steps.step3_translate_apply import Step3TranslateApply
+        p.register(Step3TranslateApply(mapping_file=args.apply_translation))
 
     if args.template:
         if "inherit_prefix" not in step_configs:

@@ -38,7 +38,10 @@ class Pipeline:
         for p in sorted(self.context.target_dir.rglob("*")):
             # 排除预览文件（preview_*.txt/json）——它们放在目标目录下供用户查看，
             # 不能被当作归档对象处理（否则下次执行会把预览文件本身改名）
+            # 排除翻译工作区（_translation/——原名清单/译名清单等翻译产物，非归档对象）
             if p.is_file() and not p.name.startswith("preview_"):
+                if "_translation" in p.relative_to(self.context.target_dir).parts:
+                    continue
                 self.context.records.append(
                     FileRecord(original_path=p, current_path=p)
                 )
