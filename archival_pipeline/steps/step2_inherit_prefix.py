@@ -331,6 +331,10 @@ class Step2InheritPrefix(PipelineStep):
             else:
                 parts = [p for p in [date, context] if p]
                 prefix = "_".join(parts) + "_" if parts else ""
+                # 幂等：已含完整前缀（日期+context）→ 跳过，防重复叠加
+                # （dirA_注意.txt 已含 context dirA_ → 再次执行不再叠成 dirA_dirA_注意.txt）
+                if prefix and rec.current_path.stem.startswith(prefix):
+                    continue
                 new_name = prefix + rec.current_path.name if prefix else None
 
             if new_name and new_name != rec.current_path.name:

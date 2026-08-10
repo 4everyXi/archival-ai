@@ -72,10 +72,16 @@ class Step3TranslateApply(PipelineStep):
         return []
 
     def preview(self, ctx: PipelineContext) -> StepPreview:
-        """预览：映射项（translated != original）→ RenameOperation（原名→译名）"""
+        """预览：映射项（translated != original）→ RenameOperation（原名→译名）
+
+        翻译目标重名 → 预分配 _2/_3（操作内去重）——与 execute 的 ensure_unique 一致，
+        避免冲突检测器把"多源同目标"误报为 CASE_COLLISION error 阻断执行。
+        """
+        from itertools import count
         ops = []
         changed = 0
         errors = []
+        used_targets: set[str] = set()
         # 建立 相对路径 → 当前文件 索引（相对 target）
         records_by_rel = {}
         for rec in ctx.records:
@@ -88,6 +94,7 @@ class Step3TranslateApply(PipelineStep):
             translated = item.get("translated", "")
             if not original:
                 continue
+            recs = []
             if path:
                 # json 模式：按相对路径精确匹配
                 recs = records_by_rel.get(path, [])
@@ -98,21 +105,28 @@ class Step3TranslateApply(PipelineStep):
                 if rec.current_path.name != original:
                     errors.append(f"原名不匹配（AI 幻觉或文件已变）: {path} 期望 {original} 实际 {rec.current_path.name}")
                     continue
-                if translated and translated != original:
-                    new_path = rec.current_path.with_name(translated)
-                    ops.append(RenameOperation(rec.current_path, new_path))
-                    changed += 1
             else:
                 # txt 模式（文档②同序译名清单）：按原名匹配——同名文件全部应用同译名
-                matches = [rec for rec in ctx.records if rec.current_path.name == original]
-                if not matches:
+                recs = [rec for rec in ctx.records if rec.current_path.name == original]
+                if not recs:
                     errors.append(f"原名未匹配: {original}")
                     continue
-                if translated and translated != original:
-                    for rec in matches:
-                        new_path = rec.current_path.with_name(translated)
-                        ops.append(RenameOperation(rec.current_path, new_path))
-                        changed += 1
+            if not (translated and translated != original):
+                continue
+            for rec in recs:
+                # 翻译目标重名 → 预分配 _2/_3（操作内去重，防检测器 CASE_COLLISION 误报）
+                dest_name = translated
+                if dest_name in used_targets:
+                    stem, suffix = Path(dest_name).stem, Path(dest_name).suffix
+                    for n in count(2):
+                        cand = f"{stem}_{n}{suffix}"
+                        if cand not in used_targets:
+                            dest_name = cand
+                            break
+                used_targets.add(dest_name)
+                new_path = rec.current_path.with_name(dest_name)
+                ops.append(RenameOperation(rec.current_path, new_path))
+                changed += 1
 
         self._last_errors = errors  # 供 execute 读取（StepPreview 无 errors 字段）
         return StepPreview(
@@ -127,20 +141,26 @@ class Step3TranslateApply(PipelineStep):
         )
 
     def execute(self, ctx: PipelineContext) -> StepResult:
-        """执行：重命名 + 备份（original/new 与模块 A 同格式，回滚通用）"""
+        """执行：重命名 + 备份（original/new 与模块 A 同格式，回滚通用）
+
+        A6 兜底：翻译目标重名时 ensure_unique 追加 _2/_3（与 step1 同模式）——
+        备份记录实际目标名（ensure_unique 后），回滚才正确。
+        """
+        from archival_pipeline.steps.step1_processor import ensure_unique
         preview = self.preview(ctx)
         backup = []
         errors = list(getattr(self, "_last_errors", []) or [])
         for op in preview.operations:
-            backup.append({"original": str(op.source), "new": str(op.destination)})
+            dest = ensure_unique(op.destination)  # 目标重名 → _2/_3（A6 机械兜底）
+            backup.append({"original": str(op.source), "new": str(dest)})
             if not ctx.dry_run:
                 try:
-                    op.source.rename(op.destination)
+                    op.source.rename(dest)
                 except OSError as e:
                     errors.append(str(e))
             for rec in ctx.records:
                 if rec.current_path == op.source:
-                    rec.current_path = op.destination
+                    rec.current_path = dest
                     break
         return StepResult(
             step_name=self.name,

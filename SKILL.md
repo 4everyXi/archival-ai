@@ -124,13 +124,35 @@ D3 修正: 文件自带日期（素材日）≠ 目录日期（发布日）时 �
 - B 模块每个决策都由 AI 理解做出。批量输入（一次读全部文件名）允许，放弃理解禁止。
 - B2 搜索是 AI 的**自主判断工具**（需要时才搜），不是固定步骤，不强制每个 token 都搜。
 
+### 模块 B 执行流程（翻译工作区——用户拍板设计）
+
+**翻译 = 逐文件对照组**：原名/路径/译名三份文档同序一一对应（一起生成才对应）——
+AI 拿到译名后按路径定位文件重命名（原名无路径无法定位）。回滚**通用**（备份与
+模块 A 同格式，`--rollback` 按时间轴自动恢复——翻译无需单独回滚逻辑）。
+
+```
+① 生成工作区   python -m archival_pipeline.cli <目录> --gen-translation-list
+               → <目录>\_translation\ 原名清单.txt（仅文件名无路径）
+                 + 路径清单.txt（与原名清单同序一一对应——定位用）
+② 手动翻译     基于原名清单逐条翻译 → 另存 译名清单.txt（同序）
+③ 应用          python -m archival_pipeline.cli <目录> \
+                   --apply-translation <译名清单.txt> --execute
+               → 三件套按行配对（路径定位+原名校验）→ 重命名 + 自动备份
+④ 精修         读对照组（原名/译名在一起）判断翻译问题 → 改译名清单 → 重跑 ③
+               （初翻译靠理解可能有小问题——对照可发现——进入精细化语义优化）
+```
+
+**对照组反馈循环**：AI 初翻译（信息少、靠理解）→ 因原名/译名**放在一起**作对照 →
+AI 能判断翻译是否有问题 → 精细化语义优化环节（改译名清单重应用）。重名文件由
+路径清单精确区分；翻译目标重名 A6 兜底（ensure_unique `_2`）。
+
 ## 模块组合（默认流程）
 
 | 用户需求 | 组合 | 执行 |
 |---------|------|------|
-| 完整档案化（默认） | A → B | 先清洗再翻译 |
+| 完整档案化（默认） | A → B | 先清洗再翻译（A 执行 → 翻译工作区 → 译名应用）|
 | 只要结构处理 | A 模块 | `python -m archival_pipeline.cli <目录> --execute`（自动备份） |
-| 只要翻译 | B 模块 | AI 直接处理（无脚本命令） |
+| 只要翻译 | B 模块 | `--gen-translation-list` 生成原名/路径清单 → 手动翻译 → `--apply-translation` 应用 |
 
 **顺序说明**：清洗在前——平台噪音先删，AI 翻译输入干净；日期/上下文继承后，日文目录名也一并翻译，上下文完整。
 
@@ -216,6 +238,8 @@ D3 修正: 文件自带日期（素材日）≠ 目录日期（发布日）时 �
 | 回滚（自动找最近备份） | `python -m archival_pipeline.cli <目录> --rollback`（无参） |
 | 回滚（指定备份文件） | `python -m archival_pipeline.cli <目录> --rollback <备份文件...>` |
 | 快速模式翻译预览（B5 缓存） | `python -m archival_pipeline.cli <目录> --translate table --preview pv.json --format txt` |
+| 生成翻译工作区（原名+路径清单，同序配对） | `python -m archival_pipeline.cli <目录> --gen-translation-list` |
+| 翻译应用（手动译名清单 → 重命名+备份，回滚通用） | `python -m archival_pipeline.cli <目录> --apply-translation <译名清单.txt> [--preview\|--execute]` |
 | 平铺（可选，需显式） | `python -m archival_pipeline.cli <目录> --flatten` |
 | 残留检测（假名/汉字残留） | `python scripts/check_translation.py <目录>` |
 | 自检（验证安全网） | `python scripts/selftest.py` |
@@ -231,7 +255,8 @@ D3 修正: 文件自带日期（素材日）≠ 目录日期（发布日）时 �
 
 > 两条预览的 new_paths 都是**最终名**（original → final 最终态对照，非中间态）——链式中间态只存在于执行内部，不对外报告。**全量显示**：每个文件都有交代（变更对照 + 无变化清单——无变化本身是信息，证明已符合需求而非被漏掉）。
 
-> 精品模式（默认）不需要任何翻译命令——模块 B 由 AI 逐条理解完成，脚本只负责 A 模块 + 安全网。
+> 精品模式（默认）的翻译判断（译什么/怎么翻）由 AI 逐条理解完成；脚本负责执行
+> 与安全网（`--gen-translation-list` 生成工作区、`--apply-translation` 应用 + 备份）。
 
 | 模块 | 职责 | 为什么保留 |
 |------|------|-----------|
