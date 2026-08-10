@@ -177,15 +177,17 @@ def main():
         p.register(Step0Translator())
 
     # 默认只注册结构步骤（A 模块）。翻译由 AI 完成；--translate 才启用缓存引擎。
-    from archival_pipeline.steps.step1_processor import Step1Processor
-    from archival_pipeline.steps.step2_inherit_prefix import Step2InheritPrefix
-    p.register(Step1Processor())
-    p.register(Step2InheritPrefix())
-
     if args.apply_translation:
-        # 模块 B 执行端：AI 翻译映射（对照组 json）→ 预览/执行 + 自动备份（回滚通用）
+        # 模块 B 执行端：翻译应用 = 纯翻译（只注册 step3，不重跑 step1/step2）——
+        # 模块 A 已由 --execute 完成；若重跑结构步骤会把原名清洗（如空格→_），
+        # 导致译名清单的 original（原名清单快照）与清洗后文件名不匹配、翻译被跳过。
         from archival_pipeline.steps.step3_translate_apply import Step3TranslateApply
         p.register(Step3TranslateApply(mapping_file=args.apply_translation))
+    else:
+        from archival_pipeline.steps.step1_processor import Step1Processor
+        from archival_pipeline.steps.step2_inherit_prefix import Step2InheritPrefix
+        p.register(Step1Processor())
+        p.register(Step2InheritPrefix())
 
     if args.template:
         if "inherit_prefix" not in step_configs:
