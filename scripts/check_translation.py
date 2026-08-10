@@ -75,11 +75,89 @@ def _check_jp_kanji(name):
     return found
 
 
+def _check_list_mode(list_file: Path) -> None:
+    """清单模式：校验译名清单.txt（应用前必跑——不合格不许应用）
+
+    检查：①假名残留 ②英文残留（白名单外）③下划线复合词残留 ④单字书面词
+    白名单（保留类——本次经验提取）：
+      - 作者名（jururi/juri/ruri——检索锚点）
+      - 技术规格（fps/RIFE/4x/1080p/720p/480p/1700p/4K/8K）
+      - 社区通用（NTR/MMD/VR/3D/2D/CG/OF）
+      - 系列代号（zzz/z02 类——数字组合）
+      - 素材名段（D3——\d{5,6}[a-z] 开头的素材日+素材名）
+      - 版本标记（a/b/s 单字母）
+    """
+    KEEP_EN = {  # 英文白名单（保留类 token）
+        "fps", "FPS", "RIFE", "4x", "4X", "NTR", "MMD", "VR", "3D", "2D", "CG", "OF",
+        "sample", "SAMPLE", "Timeline", "flow", "qq", "PKR", "kijoui", "kijouiB",
+        "kijouiR", "Rkijoui", "mzg", "mzgs", "magL", "hdk", "hdkk", "L", "S", "SS",
+        "thina", "aloe", "marimeia", "irikuro", "peko", "aquasZ", "z", "zzz", "z02",
+        "Timelinelow", "s", "Z",  # Timeline 系列/小写版本标记 s/大写系列代号 Z
+        # 作者名（检索锚点）
+        "jururi", "juri", "ruri",
+    }
+    lines = [l.rstrip() for l in list_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+    issues = {"假名残留": [], "英文残留（白名单外）": [], "下划线复合词残留": [], "单字书面词": []}
+    for line in lines:
+        stem = line.rsplit(".", 1)[0] if "." in line else line
+        # ① 假名残留
+        kana = re.findall(r"[ぁ-んァ-ヶー]+", stem)
+        if kana:
+            issues["假名残留"].append((line, kana))
+        # ② 英文残留（白名单外）——素材日段（\d{5,}[a-z]）后的 token 豁免（D3 素材名延续）
+        eng = []
+        in_material = False
+        for tok in stem.split("_"):
+            if re.fullmatch(r"\d{5,}[a-z]+\d*", tok):
+                in_material = True  # 素材日+素材名段开始——后续英文全部豁免（D3）
+                continue
+            if in_material:
+                continue
+            if not re.fullmatch(r"[A-Za-z]+", tok):
+                continue
+            if tok in KEEP_EN or re.fullmatch(r"[ab]", tok):
+                continue
+            eng.append(tok)
+        if eng:
+            issues["英文残留（白名单外）"].append((line, eng))
+        # ③ 下划线复合词残留（英文_英文——ha_to/bunny_suits 类——整段理解不该出现）
+        comp = re.findall(r"(?<![0-9])\b[a-z]+_[a-z]+\b", stem)
+        comp = [c for c in comp if not any(p in KEEP_EN for p in c.split("_"))]
+        if comp:
+            issues["下划线复合词残留"].append((line, comp))
+        # ④ 单字书面词（性/桌/爱 单字——按基调选口语双字）
+        single = re.findall(r"_(?:性|桌|爱|操|幼|裸)_", f"_{stem}_")
+        if single:
+            issues["单字书面词"].append((line, single))
+
+    total_problems = sum(len(v) for v in issues.values())
+    print(f"清单: {list_file}")
+    print(f"行数: {len(lines)} / 问题: {total_problems}")
+    if total_problems == 0:
+        print("✅ 译名完成标准校验通过——可以应用")
+        return
+    for k, v in issues.items():
+        if not v:
+            continue
+        print(f"\n⚠️ [{k}] {len(v)} 处")
+        for line, detail in v[:8]:
+            print(f"    {line}  ({detail})")
+        if len(v) > 8:
+            print(f"    ... 还有 {len(v)-8} 处")
+    print("\n❌ 校验未通过——修复后再应用（AI 逐条精修）")
+
+
 def main():
     parser = argparse.ArgumentParser(description="检查翻译质量")
     parser.add_argument("target", nargs="?", help="目标目录（默认当前目录）")
+    parser.add_argument("--list", dest="list_file", metavar="译名清单.txt",
+                        help="清单模式：校验译名清单（应用前——假名/英文白名单/复合词/单字词）")
     parser.add_argument("--verbose", "-v", action="store_true", help="详细输出")
     args = parser.parse_args()
+
+    if args.list_file:
+        _check_list_mode(Path(args.list_file))
+        return
 
     root = Path(args.target).resolve() if args.target else Path.cwd()
     if not root.exists():
