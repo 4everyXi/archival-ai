@@ -216,15 +216,32 @@ def ensure_unique(path: Path, char: str = "_") -> Path:
 
 
 def validate_name(name: str) -> bool:
-    """后置条件验证（移植自 sanitize validate()）
+    """后置条件验证：文件名是否可作为合法文件名落盘
 
-    确保输出符合预期格式：
-    - 只含 [a-zA-Z0-9 _ - . & ( ) [ ] { }]
-    - 不含连续分隔符
-    - 不以分隔符开头
+    只检查两类真正会导致 rename 失败的问题：
+      1. Windows 非法字符（\\ / : * ? " < > |）——win32 下无法作为文件名
+      2. 空名 / 纯分隔符名
+
+    边界：中文/日文/全角字符都是合法文件名，不在检查范围（它们由
+    conflict_detector 的 FORBIDDEN_CHARS 与 Windows 文件系统自然校验，
+    无需在此预设 ASCII 白名单）。
     """
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.&()[]{}")
-    return all(c in allowed for c in name)
+    if not name or name.strip() == "":
+        return False
+    # 只查 Windows 保留字符 + 控制字符（中文/日文/全角都是合法文件名）
+    if re.search(r'[\\/:*?"<>|\x00-\x1f]', name):
+        return False
+    return True
+
+
+def _sanitize_forbidden(name: str) -> str:
+    """最小化替换 Windows 非法字符（execute 降级路径用）
+
+    只替换真正会导致 rename 失败的字符为 "_"，其余（含中文/日文/
+    方括号内容标记）一律原样保留。方括号 [ ] 是 Windows 合法字符，
+    也是内容标记（[2D动画]）的载体，不得当作噪音处理。
+    """
+    return re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", name)
 
 
 class Step1Processor(PipelineStep):
@@ -245,7 +262,11 @@ class Step1Processor(PipelineStep):
         changed = 0
         for rec in ctx.records:
             name = three_delete(rec.current_path.name)
-            name = apply_safe_table(name)
+            # three_delete 已做分隔符规范化（空格/连字符/中点→_）；此处不再调用
+            # apply_safe_table——它的方括号/圆括号→"-" 映射会把内容标记
+            # "[2D动画]" 的 [ ] 也当噪音转掉。真正的 Windows 非法字符由
+            # conflict_detector(FORBIDDEN_CHARS) 与 execute 的 validate_name +
+            # _sanitize_forbidden 把关，无需在此再 safe 一遍。
             name = _RE_DEDUP.sub("_", name).strip("_-")
             if not name:
                 name = "_unnamed"
@@ -270,9 +291,10 @@ class Step1Processor(PipelineStep):
         for op in preview.operations:
             final = op.destination
             if not validate_name(final.name):
-                # 后置验证不通过时用 safe 版本
-                safe = apply_safe_table(final.name)
-                final = final.with_name(safe)
+                # 后置验证不通过（真·Windows 非法字符）时才救——且只做"字符级最小替换"，
+                # 不复用 apply_safe_table（它会把合法的 "[2D动画]" 内容标记也转成 "-"，
+                # 那是 bug #1 的连带伤害源）。这里只替换真正非法的字符为 "_"。
+                final = final.with_name(_sanitize_forbidden(final.name))
             dest = ensure_unique(final)
             backup.append({"original": str(op.source), "new": str(dest)})
             if not ctx.dry_run:

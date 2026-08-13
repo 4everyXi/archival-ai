@@ -39,7 +39,13 @@ def _find_auto_backups(target: Path) -> list[Path]:
 
 
 def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
+    """平铺：把子目录里的文件移到根目录（可选仅移动已归档文件）
+
+    每个文件独立 try/except：单个文件失败不中断其余，逐个报错并汇总，
+    避免一处失败导致整个平铺中断且无任何错误反馈。
+    """
     moved = 0
+    errors = []
     for p in sorted(target.rglob("*"), key=lambda x: len(str(x)), reverse=True):
         if p.is_file() and p.parent != target:
             if mode == "archived" and changed_files is not None:
@@ -53,15 +59,22 @@ def flatten(target: Path, mode: str = "all", changed_files: set | None = None):
                 while (target / f"{stem}_{n}{ext}").exists():
                     n += 1
                 dest = target / f"{stem}_{n}{ext}"
-            p.rename(dest)
-            moved += 1
-            print(f"  {p.name}")
+            try:
+                p.rename(dest)
+                moved += 1
+                print(f"  {p.name}")
+            except OSError as e:
+                errors.append(f"{p.name}: {e}")
     for p in sorted(target.rglob("*"), key=lambda x: len(str(x)), reverse=True):
         if p.is_dir() and p != target:
             try:
                 p.rmdir()
             except OSError:
                 pass
+    if errors:
+        print(f"⚠ 平铺有 {len(errors)} 个文件失败（未中断其余）:")
+        for e in errors:
+            print(f"  ⚠ {e}")
     print(f"\n平铺完成: {moved} 个文件移到根目录")
 
 

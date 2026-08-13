@@ -7,8 +7,11 @@
 """
 import json
 import datetime
+import logging
 from pathlib import Path
 from archival_pipeline.models import BackupData
+
+logger = logging.getLogger("ArchivalBackup")
 
 
 def save_backup(backup_data: list[dict], filepath: str | Path,
@@ -33,7 +36,13 @@ def load_backup(filepath: str | Path) -> BackupData:
 
 
 def rollback_all(backup_files: list[str | Path]) -> bool:
+    """回滚所有备份文件（逆序：后执行的先回滚，恢复执行前状态）
+
+    返回 True 仅当全部回滚成功；部分失败时返回 False 并记 logger，
+    供上游据此报告"回滚不完整"而非静默吞掉失败。
+    """
     success = True
+    failed = []  # 逐个失败项，供上游报明细
     for bf in reversed(backup_files):
         try:
             data = load_backup(bf)
@@ -43,6 +52,9 @@ def rollback_all(backup_files: list[str | Path]) -> bool:
                 if src.exists():
                     src.rename(dst)
         except Exception as e:
-            print(f"回滚失败: {bf}: {e}")
+            logger.error("回滚失败: %s: %s", bf, e)
+            failed.append(str(bf))
             success = False
+    if failed:
+        logger.error("回滚不完整：%d 个备份失败：%s", len(failed), ", ".join(failed))
     return success

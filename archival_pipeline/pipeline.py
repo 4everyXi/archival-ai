@@ -123,10 +123,12 @@ class Pipeline:
                         step_name=step.name, success=False,
                         errors=[f.message for f in blocking])
                     self._rollback_all()
+                    # errors 取阻断冲突数（真实错误数，不硬编码）
                     return PipelineResult(
                         steps=[], final_operations=[],
-                        statistics={"total": 0, "changed": 0,
-                                    "skipped": 0, "errors": 1},
+                        statistics={"total": len(self.context.records),
+                                    "changed": 0, "skipped": 0,
+                                    "errors": len(blocking)},
                     )
                 result = step.execute(self.context)
                 self.context.step_results[step.name] = result
@@ -134,7 +136,9 @@ class Pipeline:
                     self._rollback_all()
                     return PipelineResult(
                         steps=[], final_operations=[],
-                        statistics={"total": 0, "changed": 0, "skipped": 0, "errors": 1},
+                        statistics={"total": len(self.context.records),
+                                    "changed": 0, "skipped": 0,
+                                    "errors": len(result.errors)},
                     )
             except Exception as e:
                 self.context.step_results[step.name] = StepResult(
@@ -142,7 +146,8 @@ class Pipeline:
                 self._rollback_all()
                 return PipelineResult(
                     steps=[], final_operations=[],
-                    statistics={"total": 0, "changed": 0, "skipped": 0, "errors": 1},
+                    statistics={"total": len(self.context.records),
+                                "changed": 0, "skipped": 0, "errors": 1},
                 )
         total_stats = {"total": len(self.context.records), "changed": 0, "skipped": 0, "errors": 0}
         for r in self.context.step_results.values():

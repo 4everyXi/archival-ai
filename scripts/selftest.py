@@ -243,6 +243,46 @@ def test_structure_upgrades(tmp: Path):
     assert t("G36_01.mp4") == "G36_01.mp4"
 
 
+def test_validate_name_cjk_preserved(tmp: Path):
+    """回归测试：中文文件名 + 内容标记 [2D动画] 在完整执行链路后必须原样保留
+
+    覆盖 validate_name（CJK 不应误判为非法）、_sanitize_forbidden
+    （只替换真 Windows 非法字符）、以及 preview→execute 完整性（内容
+    标记方括号 [ ] 不得被 safe 化破坏）。
+    """
+    from archival_pipeline.steps.step1_processor import (
+        validate_name, _sanitize_forbidden, three_delete,
+    )
+
+    # 单元级：validate_name 对中文/日文名应返回 True（不再 ASCII 白名单误杀）
+    assert validate_name("[2D动画][有修正]_全裸.mp4") is True, \
+        "中文名 + 内容标记应通过 validate_name"
+    assert validate_name("帰宅中の桜ちゃん_めがねなし.mp4") is True, \
+        "日文名应通过 validate_name"
+    # 真·Windows 非法字符仍应拒绝
+    assert validate_name("bad:name<.mp4") is False, \
+        "Windows 非法字符仍应拒绝"
+
+    # _sanitize_forbidden 只替换真非法字符，保留内容标记方括号
+    assert _sanitize_forbidden("[2D动画]:bad.mp4") == "[2D动画]_bad.mp4", \
+        "只替换 : 为 _，[2D动画] 保留"
+
+    # 集成级：完整执行链路（含 execute 降级层）后内容标记完整
+    from archival_pipeline.pipeline import Pipeline
+    from archival_pipeline.steps.step1_processor import Step1Processor
+
+    base = tmp / "cmk"
+    base.mkdir(exist_ok=True)
+    (base / "[2D动画][有修正]_全裸.mp4").write_text("x", encoding="utf-8")
+    p = Pipeline(base, dry_run=False)
+    p.register(Step1Processor())
+    res = p.run()
+    assert res.statistics["errors"] == 0, f"执行有错误: {res.statistics}"
+    # 内容标记必须完整保留（[2D动画][有修正] 原样，不变成 -2D动画--有修正-）
+    assert (base / "[2D动画][有修正]_全裸.mp4").exists(), \
+        "执行后内容标记 [2D动画][有修正] 必须原样保留"
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="archival_ai_selftest_"))
     try:
@@ -253,7 +293,8 @@ def main():
         test_full_cycle(tmp)
         test_date_inheritance(tmp)
         test_structure_upgrades(tmp)
-        print("ALL PASS — 默认路径/快速模式/统计/冲突检测/回滚闭环/日期继承/结构升级 全部正确")
+        test_validate_name_cjk_preserved(tmp)
+        print("ALL PASS — 默认路径/快速模式/统计/冲突检测/回滚闭环/日期继承/结构升级/CJK内容标记 全部正确")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
